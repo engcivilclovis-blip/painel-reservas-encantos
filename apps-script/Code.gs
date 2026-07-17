@@ -3,19 +3,22 @@
  * (Encantos de Altitude). Cole este código no Apps Script vinculado a uma
  * planilha Google (Extensões > Apps Script) e publique como Web App.
  * Veja o passo a passo completo no README.md do repositório.
+ *
+ * O estoque é controlado POR CABANA/CONTAINER (cada unidade tem seu próprio
+ * frigobar), não um estoque central único.
  */
 
 var SHEET_ESTOQUE = 'Estoque';
 var SHEET_MOVIMENTOS = 'Movimentos';
-var DEFAULT_MINIMO = 5;
+var DEFAULT_MINIMO = 2;
 
 function getSheet_(name){
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheetByName(name);
   if(!sh){
     sh = ss.insertSheet(name);
-    if(name === SHEET_ESTOQUE) sh.appendRow(['Item','Estoque','Minimo']);
-    if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel']);
+    if(name === SHEET_ESTOQUE) sh.appendRow(['Cabana','Item','Estoque','Minimo']);
+    if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Cabana','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel']);
   }
   return sh;
 }
@@ -59,44 +62,45 @@ function getEstoque_(){
   var data = sh.getDataRange().getValues();
   var out = [];
   for(var i=1;i<data.length;i++){
-    if(!data[i][0]) continue;
-    out.push({item:data[i][0], estoque:Number(data[i][1])||0, minimo:Number(data[i][2])||DEFAULT_MINIMO});
+    if(!data[i][0] || !data[i][1]) continue;
+    out.push({cabana:data[i][0], item:data[i][1], estoque:Number(data[i][2])||0, minimo:Number(data[i][3])||DEFAULT_MINIMO});
   }
   return out;
 }
 
-function findEstoqueRow_(sh, item){
+function findEstoqueRow_(sh, cabana, item){
   var data = sh.getDataRange().getValues();
   for(var i=1;i<data.length;i++){
-    if(String(data[i][0]).trim().toLowerCase() === String(item).trim().toLowerCase()) return i+1;
+    if(String(data[i][0]).trim().toLowerCase() === String(cabana).trim().toLowerCase() &&
+       String(data[i][1]).trim().toLowerCase() === String(item).trim().toLowerCase()) return i+1;
   }
   return -1;
 }
 
-function ajustarEstoque_(item, delta){
+function ajustarEstoque_(cabana, item, delta){
   var sh = getSheet_(SHEET_ESTOQUE);
-  var row = findEstoqueRow_(sh, item);
+  var row = findEstoqueRow_(sh, cabana, item);
   if(row === -1){
-    sh.appendRow([item, delta, DEFAULT_MINIMO]);
+    sh.appendRow([cabana, item, delta, DEFAULT_MINIMO]);
   } else {
-    var atual = Number(sh.getRange(row,2).getValue()) || 0;
-    sh.getRange(row,2).setValue(atual + delta);
+    var atual = Number(sh.getRange(row,3).getValue()) || 0;
+    sh.getRange(row,3).setValue(atual + delta);
   }
 }
 
 function registrarConsumo_(body){
   var sh = getSheet_(SHEET_MOVIMENTOS);
   var id = Utilities.getUuid();
-  sh.appendRow([id, new Date(), 'saida', body.item, Number(body.qtd)||1, Number(body.valorUnit)||0, body.reservaChave||'', body.reservaLabel||'']);
-  ajustarEstoque_(body.item, -(Number(body.qtd)||1));
+  sh.appendRow([id, new Date(), 'saida', body.cabana||'', body.item, Number(body.qtd)||1, Number(body.valorUnit)||0, body.reservaChave||'', body.reservaLabel||'']);
+  ajustarEstoque_(body.cabana||'', body.item, -(Number(body.qtd)||1));
   return {ok:true, id:id};
 }
 
 function registrarRestock_(body){
   var sh = getSheet_(SHEET_MOVIMENTOS);
   var id = Utilities.getUuid();
-  sh.appendRow([id, new Date(), 'entrada', body.item, Number(body.qtd)||1, 0, '', 'Reabastecimento']);
-  ajustarEstoque_(body.item, Number(body.qtd)||1);
+  sh.appendRow([id, new Date(), 'entrada', body.cabana||'', body.item, Number(body.qtd)||1, 0, '', 'Reabastecimento']);
+  ajustarEstoque_(body.cabana||'', body.item, Number(body.qtd)||1);
   return {ok:true, id:id};
 }
 
@@ -105,9 +109,9 @@ function removerMovimento_(id){
   var data = sh.getDataRange().getValues();
   for(var i=1;i<data.length;i++){
     if(data[i][0] === id){
-      var tipo = data[i][2], item = data[i][3], qtd = Number(data[i][4])||0;
+      var tipo = data[i][2], cabana = data[i][3], item = data[i][4], qtd = Number(data[i][5])||0;
       sh.deleteRow(i+1);
-      ajustarEstoque_(item, tipo === 'saida' ? qtd : -qtd);
+      ajustarEstoque_(cabana, item, tipo === 'saida' ? qtd : -qtd);
       return {ok:true};
     }
   }
@@ -119,7 +123,7 @@ function getTotaisPorReserva_(){
   var data = sh.getDataRange().getValues();
   var totals = {};
   for(var i=1;i<data.length;i++){
-    var tipo = data[i][2], qtd = Number(data[i][4])||0, valorUnit = Number(data[i][5])||0, chave = data[i][6];
+    var tipo = data[i][2], qtd = Number(data[i][5])||0, valorUnit = Number(data[i][6])||0, chave = data[i][7];
     if(tipo === 'saida' && chave){
       totals[chave] = (totals[chave]||0) + qtd*valorUnit;
     }
@@ -132,8 +136,8 @@ function getMovimentosPorReserva_(chave){
   var data = sh.getDataRange().getValues();
   var out = [];
   for(var i=1;i<data.length;i++){
-    if(data[i][2]==='saida' && String(data[i][6])===String(chave)){
-      out.push({id:data[i][0], desc:data[i][3], qtd:Number(data[i][4])||0, valor:Number(data[i][5])||0});
+    if(data[i][2]==='saida' && String(data[i][7])===String(chave)){
+      out.push({id:data[i][0], desc:data[i][4], qtd:Number(data[i][5])||0, valor:Number(data[i][6])||0});
     }
   }
   return out;

@@ -207,14 +207,8 @@
     <hr>
     <label>Registrar reabastecimento (entrada de estoque)</label>
     <div class="frigobar-add">
-      <select id="restockPreset" onchange="applyRestockPreset(this.value)">
-        <option value="">Item personalizado…</option>
-        <option value="Água">Água</option>
-        <option value="Refrigerante">Refrigerante</option>
-        <option value="Cerveja">Cerveja</option>
-        <option value="Chocolate">Chocolate</option>
-        <option value="Salgadinho">Salgadinho</option>
-      </select>
+      <select id="restockCabana"></select>
+      <select id="restockPreset" onchange="applyRestockPreset(this.value)"></select>
       <input type="text" id="restockDesc" placeholder="Item">
       <input type="number" id="restockQtd" value="1" min="1" style="width:70px">
       <button onclick="registrarReabastecimento()">Registrar entrada</button>
@@ -232,7 +226,41 @@ let isAdmin = false;
 // Cole aqui a URL do Web App do Google Apps Script (termina em /exec) depois de publicar
 // (veja o passo a passo no README.md). Enquanto ficar vazia, o consumo de frigobar é salvo
 // apenas neste navegador, sem sincronizar com outros dispositivos.
-const FRIGOBAR_API_URL = '';
+const FRIGOBAR_API_URL = 'https://script.google.com/macros/s/AKfycbytiStVdXSsnoN0lQD5EIY5iaMj7jFzoKNdKwku7B9q2PuxgNlgHRir8g1R8DQzR_bM/exec';
+
+// Catálogo real de produtos do frigobar (nome e preço de venda).
+const PRODUCT_CATALOG = [
+  {nome:'ENCANTOS DE ALTITUDE Sauvignon Blanc', preco:159},
+  {nome:'ENCANTOS DE ALTITUDE Merlot', preco:165},
+  {nome:'ENCANTOS DE ALTITUDE Espumante Brut 750ml', preco:65},
+  {nome:'ENCANTOS DE ALTITUDE Cerveja Artesanal 350ml', preco:12},
+  {nome:'Água Mineral 500ml', preco:4.5},
+  {nome:'Água com Gás 500ml', preco:4.5},
+  {nome:'Chips de Maçã São Joaquim (40g)', preco:12},
+  {nome:'Chocolate Artesanal 80g', preco:25},
+  {nome:'CESTA DE CAFÉ DA MANHA', preco:145}
+];
+// Cabanas/containers com frigobar próprio (estoque controlado por unidade).
+const CABANAS = ['CABANA VERDE','CABANA ROSA','CABANA AZUL','CONTAINER A','CONTAINER B'];
+
+function catalogOptionsHtml(){
+  return '<option value="">Item personalizado…</option>' + PRODUCT_CATALOG.map(p =>
+    '<option value="' + p.nome + '|' + p.preco + '">' + p.nome + ' — ' + fmtMoney(p.preco) + '</option>'
+  ).join('');
+}
+function populateCatalogSelects(){
+  const restockPreset = document.getElementById('restockPreset');
+  if(restockPreset) restockPreset.innerHTML = catalogOptionsHtml();
+  const restockCabana = document.getElementById('restockCabana');
+  if(restockCabana) restockCabana.innerHTML = CABANAS.map(c => '<option value="' + c + '">' + c + '</option>').join('');
+}
+// Deriva a cabana/container do frigobar a partir da reserva (a coluna "Acomodação"
+// do FazReservas agrupa os containers sob "CONTAINERS", então usamos a "Unid." para distinguir).
+function cabanaFrigobar(res){
+  const acom = norm(res.acomodacao);
+  if(acom === 'containers') return (res.unidade||'').trim().toUpperCase() || (res.acomodacao||'').trim().toUpperCase();
+  return (res.acomodacao||'').trim().toUpperCase();
+}
 
 function apiAvailable(){ return !!FRIGOBAR_API_URL; }
 function fetchWithTimeout_(url, options, timeoutMs){
@@ -274,12 +302,17 @@ function renderStock(){
   const box = document.getElementById('stockBar');
   if(!apiAvailable() || !estoqueCache.length){ box.style.display = 'none'; return; }
   box.style.display = 'flex';
-  box.innerHTML = '<strong>📦 Estoque de frigobar:</strong>' + estoqueCache.map(it => {
-    const low = it.estoque <= it.minimo;
-    return ' <span class="stock-chip' + (low?' low':'') + '">' + it.item + ': ' + it.estoque + (low?' ⚠️ repor':'') + '</span>';
-  }).join('');
+  const low = estoqueCache.filter(it => it.estoque <= it.minimo);
+  if(!low.length){
+    box.innerHTML = '<strong>📦 Estoque de frigobar:</strong> <span class="stock-chip">tudo em dia ✅</span>';
+    return;
+  }
+  box.innerHTML = '<strong>📦 Estoque de frigobar — precisa repor:</strong>' + low.map(it =>
+    ' <span class="stock-chip low">' + it.cabana + ' · ' + it.item + ': ' + it.estoque + '</span>'
+  ).join('');
 }
 function openStockModal(){
+  populateCatalogSelects();
   document.getElementById('stockModal').style.display = 'flex';
   renderStockList();
 }
@@ -289,19 +322,25 @@ function closeStockModal(){
 function renderStockList(){
   const box = document.getElementById('stockList');
   if(!estoqueCache.length){ box.innerHTML = '<p class="empty">Nenhum item registrado ainda.</p>'; return; }
-  box.innerHTML = '<table class="fb-table"><thead><tr><th>Item</th><th>Estoque</th><th>Mínimo</th><th></th></tr></thead><tbody>' +
-    estoqueCache.map(it => '<tr><td>' + it.item + '</td><td>' + it.estoque + '</td><td>' + it.minimo + '</td><td>' + (it.estoque<=it.minimo?'⚠️ repor':'') + '</td></tr>').join('') +
-    '</tbody></table>';
+  const byCabana = {};
+  estoqueCache.forEach(it => { (byCabana[it.cabana] = byCabana[it.cabana] || []).push(it); });
+  box.innerHTML = Object.keys(byCabana).sort().map(cab => {
+    const rows = byCabana[cab].map(it => '<tr><td>' + it.item + '</td><td>' + it.estoque + '</td><td>' + it.minimo + '</td><td>' + (it.estoque<=it.minimo?'⚠️ repor':'') + '</td></tr>').join('');
+    return '<label style="margin-top:10px;">' + cab + '</label><table class="fb-table"><thead><tr><th>Item</th><th>Estoque</th><th>Mínimo</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }).join('');
 }
 function applyRestockPreset(val){
-  if(val) document.getElementById('restockDesc').value = val;
+  if(!val) return;
+  const [desc] = val.split('|');
+  document.getElementById('restockDesc').value = desc;
 }
 function registrarReabastecimento(){
   if(!isAdmin){ alert('Somente administradores podem registrar reabastecimento.'); return; }
+  const cabana = document.getElementById('restockCabana').value;
   const item = document.getElementById('restockDesc').value.trim();
   const qtd = parseInt(document.getElementById('restockQtd').value, 10) || 0;
   if(!item || qtd<=0){ alert('Informe o item e a quantidade.'); return; }
-  apiPost({action:'restock', item:item, qtd:qtd})
+  apiPost({action:'restock', cabana:cabana, item:item, qtd:qtd})
     .then(() => {
       document.getElementById('restockDesc').value = '';
       document.getElementById('restockQtd').value = 1;
@@ -629,14 +668,7 @@ function renderDetailsBody(){
   const detail = getDetail(currentDetailKey);
   const frigobarForm = isAdmin ? `
     <div class="frigobar-add">
-      <select id="fbItemPreset" onchange="applyFbPreset(this.value)">
-        <option value="">Item personalizado…</option>
-        <option value="Água|5">Água — R$5,00</option>
-        <option value="Refrigerante|8">Refrigerante — R$8,00</option>
-        <option value="Cerveja|10">Cerveja — R$10,00</option>
-        <option value="Chocolate|12">Chocolate — R$12,00</option>
-        <option value="Salgadinho|9">Salgadinho — R$9,00</option>
-      </select>
+      <select id="fbItemPreset" onchange="applyFbPreset(this.value)">${catalogOptionsHtml()}</select>
       <input type="text" id="fbDesc" placeholder="Descrição">
       <input type="number" id="fbQtd" value="1" min="1" style="width:60px">
       <input type="number" id="fbValor" placeholder="Valor unit. (R$)" step="0.01" style="width:110px">
@@ -711,8 +743,10 @@ function addFrigobarItem(){
   if(apiAvailable()){
     const sel = document.getElementById('detailsResSelect');
     const reservaLabel = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : currentDetailKey;
+    const res = reservations.find(r => resKey(r) === currentDetailKey);
+    const cabana = res ? cabanaFrigobar(res) : '';
     clearFbForm();
-    apiPost({action:'consumo', reservaChave:currentDetailKey, reservaLabel:reservaLabel, item:desc, qtd:qtd, valorUnit:valor})
+    apiPost({action:'consumo', reservaChave:currentDetailKey, reservaLabel:reservaLabel, cabana:cabana, item:desc, qtd:qtd, valorUnit:valor})
       .then(() => { loadFrigobarTableFor(currentDetailKey); refreshFrigobarCache(); })
       .catch(() => alert('Não foi possível registrar o consumo agora. Verifique sua conexão e tente novamente.'));
   } else {
@@ -832,6 +866,7 @@ function render(){
 }
 
 updateAdminUI();
+populateCatalogSelects();
 initialLoad();
 if(apiAvailable()){
   refreshFrigobarCache();
