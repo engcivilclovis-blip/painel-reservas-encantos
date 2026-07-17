@@ -84,6 +84,10 @@
   .fb-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;}
   .fb-table th, .fb-table td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left;}
   .fb-total{font-size:14px;text-align:right;}
+  .sync-note{font-weight:400;color:#8a7a6a;font-size:11px;}
+  .stock-bar{display:none;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;}
+  .stock-chip{background:var(--brand-cream);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-weight:600;}
+  .stock-chip.low{background:#f8d7cf;border-color:#c0392b;color:#8a2f1f;}
   .admin-modal{max-width:340px;}
   .admin-modal input[type=password]{width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin:8px 0;}
   .admin-error{color:#c0392b;font-size:12px;margin-bottom:8px;display:none;}
@@ -144,8 +148,11 @@
   <div class="toolbar-row">
     <button class="btn-details" onclick="openDetailsModal()">📋 Ver detalhes de uma reserva (observações / frigobar)</button>
     <button class="btn-admin" id="adminToggleBtn" onclick="toggleAdmin()">🔒 Entrar como administrador</button>
+    <button class="btn-details" id="stockBtn" onclick="openStockModal()" style="display:none;">📦 Estoque de frigobar</button>
   </div>
 </div>
+
+<div class="stock-bar" id="stockBar"></div>
 
 <div class="summary-bar" id="summaryBar"></div>
 
@@ -190,12 +197,120 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="stockModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Estoque de Frigobar</h2>
+      <button class="secondary" onclick="closeStockModal()">Fechar</button>
+    </div>
+    <div id="stockList"></div>
+    <hr>
+    <label>Registrar reabastecimento (entrada de estoque)</label>
+    <div class="frigobar-add">
+      <select id="restockPreset" onchange="applyRestockPreset(this.value)">
+        <option value="">Item personalizado…</option>
+        <option value="Água">Água</option>
+        <option value="Refrigerante">Refrigerante</option>
+        <option value="Cerveja">Cerveja</option>
+        <option value="Chocolate">Chocolate</option>
+        <option value="Salgadinho">Salgadinho</option>
+      </select>
+      <input type="text" id="restockDesc" placeholder="Item">
+      <input type="number" id="restockQtd" value="1" min="1" style="width:70px">
+      <button onclick="registrarReabastecimento()">Registrar entrada</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // Código de acesso do administrador. Troque este valor antes de publicar o painel
 // (qualquer pessoa com acesso ao código-fonte da página pode ler esta linha —
 // isto NÃO é uma senha segura, é apenas um bloqueio para evitar edições acidentais).
 const ADMIN_PIN = 'encantos2026';
 let isAdmin = false;
+
+// Cole aqui a URL do Web App do Google Apps Script (termina em /exec) depois de publicar
+// (veja o passo a passo no README.md). Enquanto ficar vazia, o consumo de frigobar é salvo
+// apenas neste navegador, sem sincronizar com outros dispositivos.
+const FRIGOBAR_API_URL = '';
+
+function apiAvailable(){ return !!FRIGOBAR_API_URL; }
+function fetchWithTimeout_(url, options, timeoutMs){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs || 10000);
+  return fetch(url, Object.assign({}, options, {signal: controller.signal}))
+    .finally(() => clearTimeout(timer));
+}
+function apiGetEstoque(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=estoque').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function apiGetTotais(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=totais').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function apiGetMovimentos(reservaChave){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=movimentos&reserva=' + encodeURIComponent(reservaChave)).then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function apiPost(payload){
+  return fetchWithTimeout_(FRIGOBAR_API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(payload) })
+    .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+
+let estoqueCache = [];
+let frigobarTotalsCache = {};
+let currentDetailFbItems = [];
+
+function refreshFrigobarCache(){
+  if(!apiAvailable()) return;
+  Promise.all([apiGetEstoque(), apiGetTotais()])
+    .then(([estoque, totais]) => {
+      estoqueCache = estoque;
+      frigobarTotalsCache = totais;
+      renderStock();
+      render();
+    })
+    .catch(() => { /* mantém o último estado conhecido se a rede falhar */ });
+}
+function renderStock(){
+  const box = document.getElementById('stockBar');
+  if(!apiAvailable() || !estoqueCache.length){ box.style.display = 'none'; return; }
+  box.style.display = 'flex';
+  box.innerHTML = '<strong>📦 Estoque de frigobar:</strong>' + estoqueCache.map(it => {
+    const low = it.estoque <= it.minimo;
+    return ' <span class="stock-chip' + (low?' low':'') + '">' + it.item + ': ' + it.estoque + (low?' ⚠️ repor':'') + '</span>';
+  }).join('');
+}
+function openStockModal(){
+  document.getElementById('stockModal').style.display = 'flex';
+  renderStockList();
+}
+function closeStockModal(){
+  document.getElementById('stockModal').style.display = 'none';
+}
+function renderStockList(){
+  const box = document.getElementById('stockList');
+  if(!estoqueCache.length){ box.innerHTML = '<p class="empty">Nenhum item registrado ainda.</p>'; return; }
+  box.innerHTML = '<table class="fb-table"><thead><tr><th>Item</th><th>Estoque</th><th>Mínimo</th><th></th></tr></thead><tbody>' +
+    estoqueCache.map(it => '<tr><td>' + it.item + '</td><td>' + it.estoque + '</td><td>' + it.minimo + '</td><td>' + (it.estoque<=it.minimo?'⚠️ repor':'') + '</td></tr>').join('') +
+    '</tbody></table>';
+}
+function applyRestockPreset(val){
+  if(val) document.getElementById('restockDesc').value = val;
+}
+function registrarReabastecimento(){
+  if(!isAdmin){ alert('Somente administradores podem registrar reabastecimento.'); return; }
+  const item = document.getElementById('restockDesc').value.trim();
+  const qtd = parseInt(document.getElementById('restockQtd').value, 10) || 0;
+  if(!item || qtd<=0){ alert('Informe o item e a quantidade.'); return; }
+  apiPost({action:'restock', item:item, qtd:qtd})
+    .then(() => {
+      document.getElementById('restockDesc').value = '';
+      document.getElementById('restockQtd').value = 1;
+      document.getElementById('restockPreset').value = '';
+      refreshFrigobarCache();
+      renderStockList();
+    })
+    .catch(() => alert('Não foi possível registrar agora. Verifique sua conexão e tente novamente.'));
+}
 
 let reservations = [];
 let weekStart = mondayOf(new Date());
@@ -245,6 +360,7 @@ function updateAdminUI(){
   const btn = document.getElementById('adminToggleBtn');
   btn.textContent = isAdmin ? '🔓 Administrador (clique para sair)' : '🔒 Entrar como administrador';
   btn.classList.toggle('is-active', isAdmin);
+  document.getElementById('stockBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
 }
 
 // ---------- Utilitários ----------
@@ -415,7 +531,10 @@ function restoreLastCSV(){
 }
 function initialLoad(){
   const url = 'data/reservas.csv?_=' + Date.now();
-  fetch(url, {cache:'no-store'})
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  fetch(url, {cache:'no-store', signal: controller.signal})
+    .finally(() => clearTimeout(timer))
     .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
     .then(text => loadCSVText(text, true, 'publicado no repositório'))
     .catch(() => restoreLastCSV());
@@ -468,6 +587,7 @@ function getDetail(key){
 }
 function saveDetails(){ localStorage.setItem('painelReservaDetalhes', JSON.stringify(resDetails)); }
 function frigobarTotal(key){
+  if(apiAvailable()) return frigobarTotalsCache[key] || 0;
   const entry = resDetails[key];
   if(!entry || !entry.items) return 0;
   return entry.items.reduce((s,it) => s + it.qtd*it.valor, 0);
@@ -523,29 +643,44 @@ function renderDetailsBody(){
       <button onclick="addFrigobarItem()">Adicionar</button>
     </div>
   ` : `<p class="empty">Somente administradores podem lançar consumo de frigobar. Peça o código de administrador a quem gerencia o painel.</p>`;
+  const syncNote = apiAvailable()
+    ? '<span class="sync-note">(sincronizado entre todos os dispositivos)</span>'
+    : '<span class="sync-note">(salvo apenas neste navegador — veja o README para sincronizar)</span>';
   box.innerHTML = `
     <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...)</label>
     <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${detail.obs || ''}</textarea>
     <hr>
-    <label>Consumo de frigobar</label>
+    <label>Consumo de frigobar ${syncNote}</label>
     ${frigobarForm}
-    <div id="fbTableWrap"></div>
+    <div id="fbTableWrap"><p class="empty">Carregando…</p></div>
   `;
   document.getElementById('obsText').addEventListener('input', function(){
     detail.obs = this.value;
     saveDetails();
   });
-  renderFrigobarTable();
+  loadFrigobarTableFor(currentDetailKey);
+}
+function loadFrigobarTableFor(key){
+  if(apiAvailable()){
+    apiGetMovimentos(key)
+      .then(items => { currentDetailFbItems = items; renderFrigobarTable(); })
+      .catch(() => {
+        const wrap = document.getElementById('fbTableWrap');
+        if(wrap) wrap.innerHTML = '<p class="empty">Não foi possível carregar o consumo (verifique a conexão) e tente novamente.</p>';
+      });
+  } else {
+    currentDetailFbItems = getDetail(key).items.map((it,i) => ({id:String(i), desc:it.desc, qtd:it.qtd, valor:it.valor}));
+    renderFrigobarTable();
+  }
 }
 function renderFrigobarTable(){
   const wrap = document.getElementById('fbTableWrap');
   if(!wrap || !currentDetailKey) return;
-  const detail = getDetail(currentDetailKey);
-  const rows = detail.items.map((it,i) => '<tr>' +
+  const rows = currentDetailFbItems.map(it => '<tr>' +
     '<td>' + it.desc + '</td><td>' + it.qtd + '</td><td>' + fmtMoney(it.valor) + '</td><td>' + fmtMoney(it.qtd*it.valor) + '</td>' +
-    '<td>' + (isAdmin ? '<button class="mini secondary" onclick="removeFrigobarItem(' + i + ')">remover</button>' : '') + '</td></tr>'
+    '<td>' + (isAdmin ? '<button class="mini secondary" onclick="removeFrigobarItem(\'' + it.id + '\')">remover</button>' : '') + '</td></tr>'
   ).join('');
-  const total = frigobarTotal(currentDetailKey);
+  const total = currentDetailFbItems.reduce((s,it) => s + it.qtd*it.valor, 0);
   wrap.innerHTML = `
     <table class="fb-table">
       <thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Subtotal</th><th></th></tr></thead>
@@ -560,6 +695,12 @@ function applyFbPreset(val){
   document.getElementById('fbDesc').value = desc;
   document.getElementById('fbValor').value = valor;
 }
+function clearFbForm(){
+  document.getElementById('fbDesc').value = '';
+  document.getElementById('fbValor').value = '';
+  document.getElementById('fbQtd').value = 1;
+  document.getElementById('fbItemPreset').value = '';
+}
 function addFrigobarItem(){
   if(!isAdmin){ alert('Somente administradores podem editar o frigobar.'); return; }
   if(!currentDetailKey){ alert('Selecione uma reserva primeiro.'); return; }
@@ -567,20 +708,32 @@ function addFrigobarItem(){
   const valor = parseFloat(document.getElementById('fbValor').value);
   const qtd = parseInt(document.getElementById('fbQtd').value, 10) || 1;
   if(!desc || isNaN(valor)){ alert('Informe a descrição e o valor unitário do item.'); return; }
-  getDetail(currentDetailKey).items.push({desc, qtd, valor, data: new Date().toISOString()});
-  saveDetails();
-  document.getElementById('fbDesc').value = '';
-  document.getElementById('fbValor').value = '';
-  document.getElementById('fbQtd').value = 1;
-  document.getElementById('fbItemPreset').value = '';
-  renderFrigobarTable();
+  if(apiAvailable()){
+    const sel = document.getElementById('detailsResSelect');
+    const reservaLabel = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : currentDetailKey;
+    clearFbForm();
+    apiPost({action:'consumo', reservaChave:currentDetailKey, reservaLabel:reservaLabel, item:desc, qtd:qtd, valorUnit:valor})
+      .then(() => { loadFrigobarTableFor(currentDetailKey); refreshFrigobarCache(); })
+      .catch(() => alert('Não foi possível registrar o consumo agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    getDetail(currentDetailKey).items.push({desc, qtd, valor, data: new Date().toISOString()});
+    saveDetails();
+    clearFbForm();
+    loadFrigobarTableFor(currentDetailKey);
+  }
 }
-function removeFrigobarItem(i){
+function removeFrigobarItem(id){
   if(!isAdmin){ alert('Somente administradores podem editar o frigobar.'); return; }
   if(!currentDetailKey) return;
-  getDetail(currentDetailKey).items.splice(i,1);
-  saveDetails();
-  renderFrigobarTable();
+  if(apiAvailable()){
+    apiPost({action:'remover', id:id})
+      .then(() => { loadFrigobarTableFor(currentDetailKey); refreshFrigobarCache(); })
+      .catch(() => alert('Não foi possível remover agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    getDetail(currentDetailKey).items.splice(Number(id),1);
+    saveDetails();
+    loadFrigobarTableFor(currentDetailKey);
+  }
 }
 // Delegação de clique nos cartões (sobrevive a re-render)
 document.getElementById('board').addEventListener('click', function(e){
@@ -680,6 +833,10 @@ function render(){
 
 updateAdminUI();
 initialLoad();
+if(apiAvailable()){
+  refreshFrigobarCache();
+  setInterval(refreshFrigobarCache, 60000);
+}
 </script>
 </body>
 </html>

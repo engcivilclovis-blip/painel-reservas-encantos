@@ -17,10 +17,11 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 
 ## Papéis de acesso (administrador x visualização)
 
-- **Sem login**: qualquer pessoa que abrir o link vê o calendário completo, navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais).
+- **Sem login**: qualquer pessoa que abrir o link vê o calendário completo, navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais). Também vê a barra de estoque de frigobar (se a sincronização estiver configurada, veja abaixo).
 - **Administrador**: clicando em "🔒 Entrar como administrador" e digitando o código, libera:
   - Importar/colar CSV manualmente dentro do próprio painel (além do fluxo normal via GitHub).
-  - Lançar e remover itens de consumo de frigobar.
+  - Lançar e remover itens de consumo de frigobar por reserva.
+  - Registrar reabastecimento de estoque (botão "📦 Estoque de frigobar", só aparece com a sincronização configurada).
 
 ### ⚠️ Importante sobre o código de administrador
 
@@ -28,11 +29,41 @@ O código fica definido na constante `ADMIN_PIN` dentro do `<script>` de `index.
 
 Isso **não é uma senha de verdade** — como o site é público e estático, qualquer pessoa que abrir "Ver código-fonte da página" no navegador consegue ler esse valor. Serve apenas para evitar que alguém sem intenção de editar clique e mexa por engano nos dados. Não use para proteger informações sensíveis.
 
-### ⚠️ Observações e frigobar são salvos por navegador, não no repositório
+### ⚠️ Observações continuam salvas por navegador (não sincronizam)
 
-Diferente do calendário de reservas (que vem do `data/reservas.csv` e é igual para todo mundo), as **observações** e o **consumo de frigobar** ficam salvos no `localStorage` do navegador de cada pessoa — ou seja, **não sincronizam entre dispositivos**. Se o administrador lançar um consumo de frigobar no computador da recepção, esse lançamento não aparece no celular da camareira, e vice-versa.
+As **observações** de cada reserva (toalhas, arrumação, pedidos) ficam salvas no `localStorage` do navegador de cada pessoa — não sincronizam entre dispositivos. Se isso precisar mudar no futuro, dá para usar o mesmo backend do frigobar (abaixo) para guardar observações também — avise se quiser.
 
-Isso é uma limitação de ser um site 100% estático (sem banco de dados). Se no futuro for necessário que observações/frigobar sejam realmente compartilhados entre todos os dispositivos, é preciso adicionar um backend simples (ex.: Google Sheets como banco via Apps Script, ou Firebase) — avise se quiser que isso seja implementado.
+## Sincronizar estoque e consumo de frigobar entre dispositivos (Google Sheets)
+
+Por padrão (`FRIGOBAR_API_URL` vazio em `index.html`), o consumo de frigobar também fica só no navegador local, igual às observações. Para que **todo mundo veja o mesmo estoque e os mesmos lançamentos**, em qualquer aparelho, siga estes passos (uma vez só):
+
+1. Acesse [sheets.google.com](https://sheets.google.com) com a conta Google do administrador e crie uma planilha em branco. Nomeie, por exemplo, "Estoque Frigobar — Encantos".
+2. No menu, vá em **Extensões → Apps Script**. Vai abrir um editor de código numa aba nova.
+3. Apague o conteúdo padrão (`function myFunction() {}`) e cole o conteúdo do arquivo [`apps-script/Code.gs`](apps-script/Code.gs) deste repositório.
+4. Salve o projeto (ícone de disquete ou Ctrl+S). Dê um nome ao projeto, ex. "API Frigobar".
+5. Clique em **Implantar → Nova implantação**.
+6. Em "Selecionar tipo", clique na engrenagem e escolha **App da Web**.
+7. Configure:
+   - **Executar como**: Eu (sua conta)
+   - **Quem pode acessar**: Qualquer pessoa
+8. Clique em **Implantar**. Na primeira vez, o Google vai pedir para autorizar o script a acessar sua planilha — clique em **Autorizar acesso**, escolha sua conta, e em "Acesso não verificado" clique em **Avançado → Acessar [nome do projeto] (não seguro)** (é normal esse aviso para scripts pessoais que você mesmo escreveu).
+9. Copie a **URL do app da Web** que aparece (termina em `/exec`).
+10. Abra `index.html` neste repositório, procure `const FRIGOBAR_API_URL = '';` e cole a URL entre as aspas:
+    ```js
+    const FRIGOBAR_API_URL = 'https://script.google.com/macros/s/SEU_ID_AQUI/exec';
+    ```
+11. Faça commit dessa alteração. Pronto — a partir daí, todo consumo de frigobar lançado por qualquer administrador, em qualquer dispositivo, atualiza a planilha e aparece para todo mundo (a página verifica atualizações a cada 1 minuto automaticamente, ou na hora ao abrir/fechar o painel de detalhes).
+
+### O que fica registrado na planilha
+
+O script cria duas abas sozinho na primeira vez que for usado:
+
+- **Estoque**: uma linha por item (Água, Cerveja, etc.) com a quantidade atual e o mínimo antes de disparar o aviso "⚠️ repor". Você pode editar essas colunas diretamente na planilha a qualquer momento (ex.: corrigir uma contagem, ou mudar o mínimo de um item).
+- **Movimentos**: histórico de tudo — cada consumo lançado numa reserva (saída de estoque) e cada reabastecimento registrado pelo administrador (entrada de estoque), com data/hora.
+
+### Sobre o código-fonte da API (`apps-script/Code.gs`)
+
+Esse arquivo fica neste repositório só como referência/backup do que foi colado no editor do Apps Script — ele **não roda a partir daqui**, precisa estar colado dentro do projeto Apps Script vinculado à planilha (passo 3 acima). Se você editar a lógica no editor do Apps Script, lembre de copiar as mudanças de volta pra cá também, e de criar uma **nova implantação** (ou "Gerenciar implantações → editar → nova versão") depois de qualquer alteração — o Apps Script não atualiza a URL publicada sozinho.
 
 ## Publicar no GitHub Pages
 
