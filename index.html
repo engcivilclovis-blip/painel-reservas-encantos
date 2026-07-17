@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Painel Semanal de Reservas — Encantos de Altitude</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand-terra:#884D2F; --brand-gold:#DCB188; --brand-gold-deep:#A9713F; --brand-charcoal:#2B2B2A; --brand-cream:#E2DDD5;
+    --booking:#1a73c7; --airbnb:#e0435f; --proprio:var(--brand-terra); --frigobar:var(--brand-gold-deep); --obs:var(--brand-charcoal);
+    --ok:#1e8e3e; --warn:#c25b00; --bg:var(--brand-cream); --card:#fffdfb; --border:#ddd0bd;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:'Poppins',Arial,Helvetica,sans-serif;background:var(--bg);margin:0;padding:16px;color:var(--brand-charcoal);}
+  .brand-header{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
+  .brand-mark{color:var(--brand-terra);flex-shrink:0;line-height:0;}
+  .brand-mark svg{width:42px;height:26px;display:block;}
+  h1{font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-size:23px;margin:0;color:var(--brand-charcoal);font-weight:600;}
+  .brand-sub{font-family:'Poppins',sans-serif;font-size:11px;letter-spacing:3px;color:var(--brand-terra);margin-top:3px;text-transform:uppercase;}
+  .toolbar{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px;position:sticky;top:0;z-index:5;box-shadow:0 2px 8px rgba(136,77,47,0.08);}
+  .toolbar-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px;}
+  .toolbar-row:last-child{margin-bottom:0;}
+  textarea{width:100%;height:80px;font-family:monospace;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:6px;}
+  textarea.obs-textarea{height:70px;font-family:'Poppins',inherit;font-size:13px;margin-bottom:10px;}
+  button{background:var(--brand-terra);color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Poppins',inherit;}
+  button.secondary{background:#7a6b5c;}
+  button.btn-details{background:var(--brand-gold-deep);}
+  button.btn-admin{background:var(--brand-charcoal);}
+  button.btn-admin.is-active{background:#3f7d4a;}
+  button.mini{padding:3px 9px;font-size:11px;border-radius:5px;}
+  button:hover{opacity:0.88;}
+  input[type=file]{font-size:13px;}
+  label.chk{font-size:13px;display:flex;align-items:center;gap:5px;}
+  .status{font-size:13px;color:#5a5049;}
+  .week-nav{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;color:var(--brand-charcoal);}
+  .summary-bar{display:flex;gap:20px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#5a5049;}
+  .summary-bar b{font-size:15px;color:var(--brand-charcoal);}
+  .board{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;}
+  @media (max-width:1000px){ .board{grid-template-columns:repeat(4,1fr);} }
+  @media (max-width:680px){ .board{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:420px){ .board{grid-template-columns:1fr;} }
+  .day-col{background:var(--card);border:1px solid var(--border);border-radius:10px;min-height:160px;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(136,77,47,0.06);}
+  .day-head{padding:8px;text-align:center;border-bottom:1px solid var(--border);border-radius:10px 10px 0 0;background:#f3eadd;}
+  .day-head .dname{font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:var(--brand-terra);}
+  .day-head .ddate{font-family:'Playfair Display',Georgia,serif;font-size:19px;font-weight:700;color:var(--brand-charcoal);}
+  .day-head.today{background:var(--brand-gold);}
+  .day-head.today .dname{color:var(--brand-charcoal);}
+  .section-label{font-size:11px;font-weight:600;color:#8a7a6a;padding:6px 8px 2px;text-transform:uppercase;letter-spacing:0.5px;}
+  .cards{padding:0 6px 6px;display:flex;flex-direction:column;gap:6px;}
+  .card{border:1px solid var(--border);border-left:4px solid #999;border-radius:7px;padding:6px 8px;font-size:12px;background:#fffdfb;transition:box-shadow .15s;cursor:pointer;}
+  .card:hover{box-shadow:0 3px 8px rgba(136,77,47,0.14);}
+  .card.p-booking{border-left-color:var(--booking);}
+  .card.p-airbnb{border-left-color:var(--airbnb);}
+  .card.p-proprio{border-left-color:var(--proprio);}
+  .card .cab{font-family:'Playfair Display',Georgia,serif;font-weight:600;font-size:13px;color:var(--brand-charcoal);}
+  .card .meta{color:#6b5d52;margin:2px 0;}
+  .card .card-hint{font-size:10px;color:var(--brand-gold-deep);margin-top:4px;text-align:right;}
+  .badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;}
+  .badge{display:inline-block;padding:2px 6px;border-radius:10px;font-size:10px;font-weight:bold;color:#fff;}
+  .badge.b-booking{background:var(--booking);}
+  .badge.b-airbnb{background:var(--airbnb);}
+  .badge.b-proprio{background:var(--proprio);}
+  .badge.b-ok{background:var(--ok);}
+  .badge.b-warn{background:var(--warn);}
+  .badge.b-frigobar{background:var(--frigobar);}
+  .badge.b-obs{background:var(--obs);}
+  .empty{color:#a89b8d;font-size:11px;padding:4px 8px;}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:#5a5049;}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(43,43,42,0.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px;}
+  .modal{background:#fffdfb;border-radius:12px;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;padding:16px 18px;}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .modal-head h2{font-family:'Playfair Display',Georgia,serif;font-size:18px;margin:0;color:var(--brand-charcoal);}
+  .modal label{font-size:13px;display:block;margin-bottom:4px;font-weight:600;color:#5a5049;}
+  .modal select#detailsResSelect{width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:12px;}
+  .modal hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
+  .frigobar-add{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px;padding:8px;background:var(--brand-cream);border-radius:6px;}
+  .frigobar-add select, .frigobar-add input{padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;}
+  .frigobar-add input#fbDesc{flex:1;min-width:120px;}
+  .fb-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;}
+  .fb-table th, .fb-table td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left;}
+  .fb-total{font-size:14px;text-align:right;}
+  .admin-modal{max-width:340px;}
+  .admin-modal input[type=password]{width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin:8px 0;}
+  .admin-error{color:#c0392b;font-size:12px;margin-bottom:8px;display:none;}
+  .admin-error.show{display:block;}
+</style>
+</head>
+<body>
+
+<div class="brand-header">
+  <div class="brand-mark">
+    <svg viewBox="0 0 120 74" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 70 L10 40 L60 8 L110 40 L110 70"/>
+        <path d="M10 40 L110 40"/>
+        <path d="M60 8 L45 40"/>
+        <path d="M60 8 L60 40"/>
+        <path d="M60 8 L75 40"/>
+        <path d="M35 40 L35 70"/>
+        <path d="M85 40 L85 70"/>
+      </g>
+      <path d="M34 70 A26 26 0 0 1 86 70 Z" fill="currentColor"/>
+    </svg>
+  </div>
+  <div>
+    <h1>Painel Semanal de Reservas</h1>
+    <div class="brand-sub">Encantos de Altitude · Eco Villa</div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div id="importSection">
+    <div class="toolbar-row">
+      <strong>1) Importar dados do FazReservas:</strong>
+      <input type="file" id="fileInput" accept=".csv,.txt">
+      <button class="secondary" onclick="toggleArea()">Colar CSV manualmente</button>
+      <button class="secondary" onclick="loadSample()">Carregar exemplo</button>
+    </div>
+    <div class="toolbar-row" id="pasteRow" style="display:none;">
+      <textarea id="pasteArea" placeholder="Cole aqui o conteúdo do CSV exportado (Reservas > Lista > CSV)"></textarea>
+      <button onclick="importPasted()">Importar texto colado</button>
+    </div>
+  </div>
+  <div class="toolbar-row" id="viewerNotice" style="display:none;">
+    <span class="status">👁️ Modo visualização — apenas administradores podem importar ou atualizar os dados. Você pode navegar pelas semanas e registrar observações normalmente.</span>
+  </div>
+  <div class="toolbar-row">
+    <div class="week-nav">
+      <button class="secondary" onclick="changeWeek(-1)">&laquo; Semana anterior</button>
+      <span id="weekLabel">-</span>
+      <button class="secondary" onclick="changeWeek(1)">Próxima semana &raquo;</button>
+      <button class="secondary" onclick="goToday()">Hoje</button>
+    </div>
+    <input type="date" id="jumpDate" onchange="jumpToDate(this.value)">
+    <label class="chk"><input type="checkbox" id="showCancelled" onchange="render()"> Mostrar canceladas</label>
+    <button class="secondary" onclick="initialLoad()">🔄 Atualizar dados</button>
+    <span class="status" id="statusMsg">Nenhum dado carregado ainda.</span>
+  </div>
+  <div class="toolbar-row">
+    <button class="btn-details" onclick="openDetailsModal()">📋 Ver detalhes de uma reserva (observações / frigobar)</button>
+    <button class="btn-admin" id="adminToggleBtn" onclick="toggleAdmin()">🔒 Entrar como administrador</button>
+  </div>
+</div>
+
+<div class="summary-bar" id="summaryBar"></div>
+
+<div class="board" id="board"></div>
+
+<div class="legend">
+  <span><span class="dot" style="background:var(--booking)"></span> Booking.com — pago pela plataforma</span>
+  <span><span class="dot" style="background:var(--airbnb)"></span> Airbnb — pago pela plataforma</span>
+  <span><span class="dot" style="background:var(--proprio)"></span> Reserva própria — mostra saldo a pagar</span>
+  <span><span class="dot" style="background:var(--frigobar)"></span> Consumo de frigobar — cobrado na saída</span>
+  <span><span class="dot" style="background:var(--obs)"></span> Reserva com observação registrada</span>
+</div>
+<p style="font-size:11px;color:#8a7a6a;margin-top:10px;">
+  Este painel é somente para consulta das reservas. Qualquer edição de reserva deve ser feita diretamente no FazReservas.
+  Clique em qualquer cartão de entrada ou saída para ver observações e (se administrador) lançar consumo de frigobar — essas informações ficam salvas apenas neste navegador.
+</p>
+
+<div class="modal-overlay" id="detailsModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Detalhes da Reserva</h2>
+      <button class="secondary" onclick="closeDetailsModal()">Fechar</button>
+    </div>
+    <label for="detailsResSelect">Reserva</label>
+    <select id="detailsResSelect" onchange="selectDetailsRes(this.value)"></select>
+    <div id="detailsBody"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="adminModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>Acesso de Administrador</h2>
+      <button class="secondary" onclick="closeAdminModal()">Fechar</button>
+    </div>
+    <label for="adminPinInput">Código de administrador</label>
+    <form onsubmit="event.preventDefault(); submitAdminPin();">
+      <input type="password" id="adminPinInput" autocomplete="off" placeholder="Digite o código">
+      <div class="admin-error" id="adminError">Código incorreto. Tente novamente.</div>
+      <button type="submit">Entrar</button>
+    </form>
+  </div>
+</div>
+
+<script>
+// Código de acesso do administrador. Troque este valor antes de publicar o painel
+// (qualquer pessoa com acesso ao código-fonte da página pode ler esta linha —
+// isto NÃO é uma senha segura, é apenas um bloqueio para evitar edições acidentais).
+const ADMIN_PIN = 'encantos2026';
+let isAdmin = false;
+
+let reservations = [];
+let weekStart = mondayOf(new Date());
+const LS_CSV_KEY = 'painelUltimoCSV';
+const LS_CSV_TIME_KEY = 'painelUltimoCSVHora';
+let resDetails = {};
+try { resDetails = JSON.parse(localStorage.getItem('painelReservaDetalhes') || '{}'); } catch(e){ resDetails = {}; }
+let currentDetailKey = null;
+
+// ---------- Administrador ----------
+function toggleAdmin(){
+  if(isAdmin){
+    isAdmin = false;
+    updateAdminUI();
+    if(currentDetailKey) renderDetailsBody();
+    render();
+  } else {
+    openAdminModal();
+  }
+}
+function openAdminModal(){
+  document.getElementById('adminError').classList.remove('show');
+  document.getElementById('adminPinInput').value = '';
+  document.getElementById('adminModal').style.display = 'flex';
+  document.getElementById('adminPinInput').focus();
+}
+function closeAdminModal(){
+  document.getElementById('adminModal').style.display = 'none';
+}
+function submitAdminPin(){
+  const pin = document.getElementById('adminPinInput').value;
+  if(pin.trim() === ADMIN_PIN){
+    isAdmin = true;
+    closeAdminModal();
+    updateAdminUI();
+    if(currentDetailKey) renderDetailsBody();
+    render();
+  } else {
+    document.getElementById('adminError').classList.add('show');
+    document.getElementById('adminPinInput').value = '';
+    document.getElementById('adminPinInput').focus();
+  }
+}
+function updateAdminUI(){
+  document.getElementById('importSection').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('viewerNotice').style.display = isAdmin ? 'none' : 'flex';
+  const btn = document.getElementById('adminToggleBtn');
+  btn.textContent = isAdmin ? '🔓 Administrador (clique para sair)' : '🔒 Entrar como administrador';
+  btn.classList.toggle('is-active', isAdmin);
+}
+
+// ---------- Utilitários ----------
+function norm(s){
+  return (s===undefined||s===null) ? '' :
+    s.toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+}
+function mondayOf(date){
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = (day===0?-6:1-day);
+  d.setDate(d.getDate()+diff);
+  d.setHours(0,0,0,0);
+  return d;
+}
+function sameDay(a,b){
+  return a && b && a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+}
+function parseDate(str){
+  if(!str) return null;
+  str = str.toString().trim();
+  let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return new Date(+m[1], +m[2]-1, +m[3]);
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m) return new Date(+m[3], +m[2]-1, +m[1]);
+  const months={jan:0,fev:1,feb:1,mar:2,abr:3,apr:3,mai:4,may:4,jun:5,jul:6,ago:7,aug:7,set:8,sep:8,out:9,oct:9,nov:10,dez:11,dec:11};
+  m = str.match(/(\d{1,2})\s+([A-Za-zçÇ]{3,})\s+(\d{4})/);
+  if(m){
+    const mon = months[norm(m[2]).slice(0,3)];
+    if(mon!==undefined) return new Date(+m[3], mon, +m[1]);
+  }
+  const d = new Date(str);
+  if(!isNaN(d.getTime())) return d;
+  return null;
+}
+function parseNumber(s){
+  if(s===undefined||s===null) return 0;
+  s = s.toString().trim();
+  if(s==='') return 0;
+  s = s.replace(/[^\d,.\-]/g,'');
+  if(s.includes(',') && s.includes('.')){
+    if(s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g,'').replace(',','.');
+    else s = s.replace(/,/g,'');
+  } else if(s.includes(',')){
+    s = s.replace(',','.');
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+function fmtMoney(n){
+  return 'R$ ' + n.toFixed(2).replace('.',',');
+}
+function platformOf(ref){
+  const r = norm(ref);
+  if(r.includes('airbnb')) return 'Airbnb';
+  if(r.includes('booking')) return 'Booking.com';
+  return 'Próprio';
+}
+function platformClass(p){
+  return p==='Booking.com' ? 'booking' : (p==='Airbnb' ? 'airbnb' : 'proprio');
+}
+
+// ---------- Parser CSV ----------
+function parseCSV(text){
+  text = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/^﻿/,'');
+  const firstLine = text.split('\n')[0];
+  const delim = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+  const rows=[]; let row=[]; let field=''; let inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"'; i++;} else inQ=false; }
+      else field+=c;
+    } else {
+      if(c==='"') inQ=true;
+      else if(c===delim){ row.push(field); field=''; }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else field+=c;
+    }
+  }
+  if(field.length>0 || row.length>0){ row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(x=>x.trim()!==''));
+}
+
+const HEADER_MAP = {
+  numero: ['numero','number'],
+  status: ['status'],
+  tag: ['tag/marcador','tag','marcador'],
+  propriedade: ['propriedade','property'],
+  acomodacao: ['acomodacao','accommodation'],
+  unidade: ['unid.','unid','unidade','unit'],
+  checkin: ['check in','checkin'],
+  checkout: ['check out','checkout'],
+  noites: ['noites','nights'],
+  nome: ['nome completo','nome','name'],
+  email: ['e-mail','email'],
+  adultos: ['adultos','adults'],
+  criancas: ['criancas','children'],
+  referencia: ['referencia','source','fonte de referencia'],
+  pagamentos: ['pagamentos','payments'],
+  saldo: ['saldo','balance'],
+  valor: ['valor','total','value']
+};
+function buildIndex(headerRow){
+  const idx = {};
+  const normed = headerRow.map(norm);
+  for(const key in HEADER_MAP){
+    for(const cand of HEADER_MAP[key]){
+      const pos = normed.findIndex(h => h===cand || h.includes(cand));
+      if(pos!==-1){ idx[key]=pos; break; }
+    }
+  }
+  return idx;
+}
+
+function loadCSVText(text, persist, sourceLabel){
+  if(persist === undefined) persist = true;
+  const rows = parseCSV(text);
+  if(rows.length<2){ alert('Não foi possível identificar linhas de dados no arquivo.'); return; }
+  const idx = buildIndex(rows[0]);
+  const list = [];
+  for(let i=1;i<rows.length;i++){
+    const r = rows[i];
+    const get = (key) => idx[key]!==undefined ? (r[idx[key]]||'').trim() : '';
+    const checkin = parseDate(get('checkin'));
+    const checkout = parseDate(get('checkout'));
+    if(!checkin && !checkout) continue;
+    const ref = get('referencia');
+    list.push({
+      numero: get('numero'),
+      status: get('status'),
+      propriedade: get('propriedade'),
+      acomodacao: get('acomodacao') || get('unidade'),
+      unidade: get('unidade'),
+      checkin, checkout,
+      nome: get('nome'),
+      adultos: parseNumber(get('adultos')),
+      criancas: parseNumber(get('criancas')),
+      referencia: ref,
+      platform: platformOf(ref),
+      saldo: parseNumber(get('saldo')),
+      valor: parseNumber(get('valor'))
+    });
+  }
+  reservations = list;
+  if(persist){
+    localStorage.setItem(LS_CSV_KEY, text);
+    localStorage.setItem(LS_CSV_TIME_KEY, new Date().toISOString());
+  }
+  updateStatusMsg(sourceLabel);
+  if(list.length){
+    const firstDate = list.map(r=>r.checkin||r.checkout).filter(Boolean).sort((a,b)=>a-b)[0];
+    if(firstDate) weekStart = mondayOf(firstDate);
+  }
+  render();
+}
+function updateStatusMsg(sourceLabel){
+  let msg = reservations.length + ' reservas carregadas.';
+  const t = localStorage.getItem(LS_CSV_TIME_KEY);
+  if(t) msg += ' Última atualização: ' + new Date(t).toLocaleString('pt-BR');
+  if(sourceLabel) msg += ' (' + sourceLabel + ')';
+  document.getElementById('statusMsg').textContent = msg;
+}
+function restoreLastCSV(){
+  const saved = localStorage.getItem(LS_CSV_KEY);
+  if(saved) loadCSVText(saved, false, 'salvo neste navegador');
+  else render();
+}
+function initialLoad(){
+  const url = 'data/reservas.csv?_=' + Date.now();
+  fetch(url, {cache:'no-store'})
+    .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(text => loadCSVText(text, true, 'publicado no repositório'))
+    .catch(() => restoreLastCSV());
+}
+
+// ---------- Entrada de dados (somente administrador) ----------
+document.getElementById('fileInput').addEventListener('change', function(e){
+  if(!isAdmin){ alert('Somente administradores podem importar dados.'); e.target.value=''; return; }
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => loadCSVText(ev.target.result);
+  reader.readAsText(file, 'UTF-8');
+});
+function toggleArea(){
+  const row = document.getElementById('pasteRow');
+  row.style.display = row.style.display==='none' ? 'flex' : 'none';
+}
+function importPasted(){
+  if(!isAdmin){ alert('Somente administradores podem importar dados.'); return; }
+  const txt = document.getElementById('pasteArea').value;
+  if(txt.trim()==='') { alert('Cole o conteúdo do CSV antes de importar.'); return; }
+  loadCSVText(txt);
+}
+function loadSample(){
+  if(!isAdmin){ alert('Somente administradores podem importar dados.'); return; }
+  const sample = `Numero,Status,Propriedade,Acomodacao,Unid.,Check In,Check Out,Nome completo,Adultos,Criancas,Referencia,Pagamentos,Saldo,Valor
+1001,Confirmado,ENCANTOS DE ALTITUDE,CABANA VERDE,C.VERDE,2026-07-13,2026-07-15,Maria Silva,2,0,direct,300.00,900.00,1200.00
+1002,Confirmado,ENCANTOS DE ALTITUDE,CABANA ROSA,C.ROSA,2026-07-14,2026-07-16,Renata Picolli,4,0,Booking.com,0.00,1198.00,1198.00
+1003,Confirmado,ENCANTOS DE ALTITUDE,CABANA AZUL,C.AZUL,2026-07-16,2026-07-18,Ana Souza,2,1,Airbnb,0.00,980.00,980.00
+1004,Confirmado,ENCANTOS DE ALTITUDE,CONTAINER A,CONTAINER A,2026-07-17,2026-07-19,Juliano Rengel,2,0,direct,780.00,0.00,780.00`;
+  loadCSVText(sample, false, 'exemplo');
+}
+
+// ---------- Navegação de semana ----------
+function changeWeek(delta){ weekStart.setDate(weekStart.getDate() + delta*7); render(); }
+function goToday(){ weekStart = mondayOf(new Date()); render(); }
+function jumpToDate(val){ if(val){ weekStart = mondayOf(new Date(val)); render(); } }
+
+// ---------- Detalhes da reserva (observações + frigobar) ----------
+function resKey(res){
+  if(res.numero && res.numero.trim()) return 'n:' + res.numero.trim();
+  const ci = res.checkin ? res.checkin.toISOString().slice(0,10) : '';
+  return 'k:' + norm(res.nome) + '|' + ci + '|' + norm(res.acomodacao || res.unidade);
+}
+function getDetail(key){
+  if(!resDetails[key]) resDetails[key] = {obs:'', items:[]};
+  if(!resDetails[key].items) resDetails[key].items = [];
+  return resDetails[key];
+}
+function saveDetails(){ localStorage.setItem('painelReservaDetalhes', JSON.stringify(resDetails)); }
+function frigobarTotal(key){
+  const entry = resDetails[key];
+  if(!entry || !entry.items) return 0;
+  return entry.items.reduce((s,it) => s + it.qtd*it.valor, 0);
+}
+function openDetailsModal(key){
+  document.getElementById('detailsModal').style.display = 'flex';
+  populateDetailsSelect();
+  if(key){
+    document.getElementById('detailsResSelect').value = key;
+    selectDetailsRes(key);
+  } else {
+    currentDetailKey = null;
+    document.getElementById('detailsBody').innerHTML = '<p class="empty">Selecione uma reserva acima.</p>';
+  }
+}
+function closeDetailsModal(){
+  document.getElementById('detailsModal').style.display = 'none';
+  currentDetailKey = null;
+  render();
+}
+function populateDetailsSelect(){
+  const sel = document.getElementById('detailsResSelect');
+  const sorted = reservations.slice().sort((a,b) => (a.checkin||0) - (b.checkin||0));
+  sel.innerHTML = '<option value="">— selecione uma reserva —</option>' + sorted.map(r => {
+    const k = resKey(r);
+    const ci = r.checkin ? r.checkin.toLocaleDateString('pt-BR') : '?';
+    const co = r.checkout ? r.checkout.toLocaleDateString('pt-BR') : '?';
+    const label = (r.acomodacao || r.unidade || '?') + ' · ' + (r.nome || '(sem nome)') + ' · ' + ci + ' a ' + co;
+    return '<option value="' + k + '">' + label + '</option>';
+  }).join('');
+}
+function selectDetailsRes(key){
+  currentDetailKey = key || null;
+  renderDetailsBody();
+}
+function renderDetailsBody(){
+  const box = document.getElementById('detailsBody');
+  if(!currentDetailKey){ box.innerHTML = '<p class="empty">Selecione uma reserva acima.</p>'; return; }
+  const detail = getDetail(currentDetailKey);
+  const frigobarForm = isAdmin ? `
+    <div class="frigobar-add">
+      <select id="fbItemPreset" onchange="applyFbPreset(this.value)">
+        <option value="">Item personalizado…</option>
+        <option value="Água|5">Água — R$5,00</option>
+        <option value="Refrigerante|8">Refrigerante — R$8,00</option>
+        <option value="Cerveja|10">Cerveja — R$10,00</option>
+        <option value="Chocolate|12">Chocolate — R$12,00</option>
+        <option value="Salgadinho|9">Salgadinho — R$9,00</option>
+      </select>
+      <input type="text" id="fbDesc" placeholder="Descrição">
+      <input type="number" id="fbQtd" value="1" min="1" style="width:60px">
+      <input type="number" id="fbValor" placeholder="Valor unit. (R$)" step="0.01" style="width:110px">
+      <button onclick="addFrigobarItem()">Adicionar</button>
+    </div>
+  ` : `<p class="empty">Somente administradores podem lançar consumo de frigobar. Peça o código de administrador a quem gerencia o painel.</p>`;
+  box.innerHTML = `
+    <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...)</label>
+    <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${detail.obs || ''}</textarea>
+    <hr>
+    <label>Consumo de frigobar</label>
+    ${frigobarForm}
+    <div id="fbTableWrap"></div>
+  `;
+  document.getElementById('obsText').addEventListener('input', function(){
+    detail.obs = this.value;
+    saveDetails();
+  });
+  renderFrigobarTable();
+}
+function renderFrigobarTable(){
+  const wrap = document.getElementById('fbTableWrap');
+  if(!wrap || !currentDetailKey) return;
+  const detail = getDetail(currentDetailKey);
+  const rows = detail.items.map((it,i) => '<tr>' +
+    '<td>' + it.desc + '</td><td>' + it.qtd + '</td><td>' + fmtMoney(it.valor) + '</td><td>' + fmtMoney(it.qtd*it.valor) + '</td>' +
+    '<td>' + (isAdmin ? '<button class="mini secondary" onclick="removeFrigobarItem(' + i + ')">remover</button>' : '') + '</td></tr>'
+  ).join('');
+  const total = frigobarTotal(currentDetailKey);
+  wrap.innerHTML = `
+    <table class="fb-table">
+      <thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Subtotal</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" class="empty">Nenhum consumo lançado ainda.</td></tr>'}</tbody>
+    </table>
+    <div class="fb-total">Total frigobar desta reserva: <strong>${fmtMoney(total)}</strong></div>
+  `;
+}
+function applyFbPreset(val){
+  if(!val) return;
+  const [desc, valor] = val.split('|');
+  document.getElementById('fbDesc').value = desc;
+  document.getElementById('fbValor').value = valor;
+}
+function addFrigobarItem(){
+  if(!isAdmin){ alert('Somente administradores podem editar o frigobar.'); return; }
+  if(!currentDetailKey){ alert('Selecione uma reserva primeiro.'); return; }
+  const desc = document.getElementById('fbDesc').value.trim();
+  const valor = parseFloat(document.getElementById('fbValor').value);
+  const qtd = parseInt(document.getElementById('fbQtd').value, 10) || 1;
+  if(!desc || isNaN(valor)){ alert('Informe a descrição e o valor unitário do item.'); return; }
+  getDetail(currentDetailKey).items.push({desc, qtd, valor, data: new Date().toISOString()});
+  saveDetails();
+  document.getElementById('fbDesc').value = '';
+  document.getElementById('fbValor').value = '';
+  document.getElementById('fbQtd').value = 1;
+  document.getElementById('fbItemPreset').value = '';
+  renderFrigobarTable();
+}
+function removeFrigobarItem(i){
+  if(!isAdmin){ alert('Somente administradores podem editar o frigobar.'); return; }
+  if(!currentDetailKey) return;
+  getDetail(currentDetailKey).items.splice(i,1);
+  saveDetails();
+  renderFrigobarTable();
+}
+// Delegação de clique nos cartões (sobrevive a re-render)
+document.getElementById('board').addEventListener('click', function(e){
+  const el = e.target.closest('[data-detail-key]');
+  if(el) openDetailsModal(el.getAttribute('data-detail-key'));
+});
+
+// ---------- Renderização ----------
+const DAY_NAMES = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
+
+function paymentBadge(res, key, includeFrigobar){
+  const fbTotal = includeFrigobar ? frigobarTotal(key) : 0;
+  if(res.platform !== 'Próprio'){
+    if(fbTotal > 0.009) return {text:'Frigobar a cobrar na saída: ' + fmtMoney(fbTotal), cls:'b-warn'};
+    return {text:'Pago pela plataforma', cls:'b-ok'};
+  }
+  const totalDevido = res.saldo + fbTotal;
+  if(totalDevido <= 0.009){
+    return {text:'Quitado', cls:'b-ok'};
+  }
+  return {text:'A cobrar na saída: ' + fmtMoney(totalDevido), cls:'b-warn'};
+}
+
+function makeCard(res, isCheckout){
+  const pClass = platformClass(res.platform);
+  const guests = res.adultos + res.criancas;
+  const key = resKey(res);
+  const detail = getDetail(key);
+  const fbTotal = frigobarTotal(key);
+  const hasObs = detail.obs && detail.obs.trim() !== '';
+  const pay = paymentBadge(res, key, isCheckout);
+  const cabana = res.acomodacao || res.unidade || '(sem cabana)';
+  return `<div class="card p-${pClass}" data-detail-key="${key}" title="Clique para ver observações e frigobar">
+    <div class="cab">${cabana}</div>
+    <div class="meta">${res.nome ? res.nome + ' · ' : ''}${guests} hóspede(s)</div>
+    <div class="badges">
+      <span class="badge b-${pClass}">${res.platform}</span>
+      <span class="badge ${pay.cls}">${pay.text}</span>
+      ${(fbTotal>0.009 && !isCheckout) ? `<span class="badge b-frigobar">Frigobar: ${fmtMoney(fbTotal)}</span>` : ''}
+      ${hasObs ? `<span class="badge b-obs">📝 Observação</span>` : ''}
+    </div>
+    <div class="card-hint">Ver detalhes ▸</div>
+  </div>`;
+}
+
+function render(){
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  const showCancelled = document.getElementById('showCancelled').checked;
+  const today = new Date();
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate()+6);
+  document.getElementById('weekLabel').textContent =
+    weekStart.toLocaleDateString('pt-BR') + ' a ' + weekEnd.toLocaleDateString('pt-BR');
+
+  let weekEntradas = 0, weekSaidas = 0, weekACobrar = 0, weekFrigobar = 0;
+
+  for(let i=0;i<7;i++){
+    const day = new Date(weekStart); day.setDate(day.getDate()+i);
+    const isToday = sameDay(day, today);
+
+    const entradas = reservations.filter(r => sameDay(r.checkin, day) &&
+      (showCancelled || !norm(r.status).includes('cancel')));
+    const saidas = reservations.filter(r => sameDay(r.checkout, day) &&
+      (showCancelled || !norm(r.status).includes('cancel')));
+
+    weekEntradas += entradas.length;
+    weekSaidas += saidas.length;
+    saidas.forEach(r => {
+      const key = resKey(r);
+      const fb = frigobarTotal(key);
+      weekFrigobar += fb;
+      if(r.platform === 'Próprio') weekACobrar += (r.saldo + fb);
+    });
+
+    const col = document.createElement('div');
+    col.className = 'day-col';
+    col.innerHTML = `
+      <div class="day-head ${isToday?'today':''}">
+        <div class="dname">${DAY_NAMES[i]}</div>
+        <div class="ddate">${day.getDate().toString().padStart(2,'0')}/${(day.getMonth()+1).toString().padStart(2,'0')}</div>
+      </div>
+      <div class="section-label">Entradas (${entradas.length})</div>
+      <div class="cards">${entradas.length ? entradas.map(r=>makeCard(r,false)).join('') : '<div class="empty">Sem check-ins</div>'}</div>
+      <div class="section-label">Saídas (${saidas.length})</div>
+      <div class="cards">${saidas.length ? saidas.map(r=>makeCard(r,true)).join('') : '<div class="empty">Sem check-outs</div>'}</div>
+    `;
+    board.appendChild(col);
+  }
+
+  document.getElementById('summaryBar').innerHTML = `
+    <span>Entradas na semana: <b>${weekEntradas}</b></span>
+    <span>Saídas na semana: <b>${weekSaidas}</b></span>
+    <span>A cobrar nas saídas (saldo + frigobar): <b>${fmtMoney(weekACobrar)}</b></span>
+    <span>Frigobar cobrado nas saídas: <b>${fmtMoney(weekFrigobar)}</b></span>
+  `;
+}
+
+updateAdminUI();
+initialLoad();
+</script>
+</body>
+</html>
