@@ -17,7 +17,7 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 
 ## Papéis de acesso (administrador x visualização)
 
-- **Sem login**: qualquer pessoa que abrir o link vê o calendário completo, navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais). Também vê a barra de estoque de frigobar (se a sincronização estiver configurada, veja abaixo).
+- **Sem login**: qualquer pessoa que abrir o link vê o calendário completo, navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais) — sincronizadas entre todos os dispositivos quando a API estiver configurada (veja abaixo). Também vê a barra de estoque de frigobar (se a sincronização estiver configurada).
 - **Administrador**: clicando em "🔒 Entrar como administrador" e digitando o código, libera:
   - Importar/colar CSV manualmente dentro do próprio painel (além do fluxo normal via GitHub).
   - Lançar e remover itens de consumo de frigobar por reserva.
@@ -29,13 +29,13 @@ O código fica definido na constante `ADMIN_PIN` dentro do `<script>` de `index.
 
 Isso **não é uma senha de verdade** — como o site é público e estático, qualquer pessoa que abrir "Ver código-fonte da página" no navegador consegue ler esse valor. Serve apenas para evitar que alguém sem intenção de editar clique e mexa por engano nos dados. Não use para proteger informações sensíveis.
 
-### ⚠️ Observações continuam salvas por navegador (não sincronizam)
+### ⚠️ Sem a API configurada, observações e frigobar ficam só no navegador local
 
-As **observações** de cada reserva (toalhas, arrumação, pedidos) ficam salvas no `localStorage` do navegador de cada pessoa — não sincronizam entre dispositivos. Se isso precisar mudar no futuro, dá para usar o mesmo backend do frigobar (abaixo) para guardar observações também — avise se quiser.
+Enquanto `FRIGOBAR_API_URL` estiver vazio em `index.html`, tanto as **observações** quanto o **consumo de frigobar** ficam salvos apenas no `localStorage` do navegador de cada pessoa — não sincronizam entre dispositivos. Assim que a API for configurada (próxima seção), os dois passam a sincronizar automaticamente entre todos os dispositivos.
 
-## Sincronizar estoque e consumo de frigobar entre dispositivos (Google Sheets)
+## Sincronizar observações, estoque e consumo de frigobar entre dispositivos (Google Sheets)
 
-Por padrão (`FRIGOBAR_API_URL` vazio em `index.html`), o consumo de frigobar também fica só no navegador local, igual às observações. Para que **todo mundo veja o mesmo estoque e os mesmos lançamentos**, em qualquer aparelho, siga estes passos (uma vez só):
+Por padrão (`FRIGOBAR_API_URL` vazio em `index.html`), observações e frigobar ficam só no navegador local. Para que **todo mundo veja as mesmas observações, o mesmo estoque e os mesmos lançamentos**, em qualquer aparelho, siga estes passos (uma vez só):
 
 1. Acesse [sheets.google.com](https://sheets.google.com) com a conta Google do administrador e crie uma planilha em branco. Nomeie, por exemplo, "Estoque Frigobar — Encantos".
 2. No menu, vá em **Extensões → Apps Script**. Vai abrir um editor de código numa aba nova.
@@ -52,14 +52,15 @@ Por padrão (`FRIGOBAR_API_URL` vazio em `index.html`), o consumo de frigobar ta
     ```js
     const FRIGOBAR_API_URL = 'https://script.google.com/macros/s/SEU_ID_AQUI/exec';
     ```
-11. Faça commit dessa alteração. Pronto — a partir daí, todo consumo de frigobar lançado por qualquer administrador, em qualquer dispositivo, atualiza a planilha e aparece para todo mundo (a página verifica atualizações a cada 1 minuto automaticamente, ou na hora ao abrir/fechar o painel de detalhes).
+11. Faça commit dessa alteração. Pronto — a partir daí, toda observação escrita e todo consumo de frigobar lançado, em qualquer dispositivo, atualiza a planilha e aparece para todo mundo (a página verifica atualizações a cada 1 minuto automaticamente, ou na hora ao abrir/fechar o painel de detalhes; observações salvam ~1 segundo depois de parar de digitar).
 
 ### O que fica registrado na planilha
 
-O script cria duas abas sozinho na primeira vez que for usado:
+O script cria três abas sozinho na primeira vez que for usado:
 
-- **Estoque**: uma linha por item (Água, Cerveja, etc.) com a quantidade atual e o mínimo antes de disparar o aviso "⚠️ repor". Você pode editar essas colunas diretamente na planilha a qualquer momento (ex.: corrigir uma contagem, ou mudar o mínimo de um item).
+- **Estoque**: uma linha por cabana/container + item (Água, Cerveja, etc.) com a quantidade atual e o mínimo antes de disparar o aviso "⚠️ repor". Você pode editar essas colunas diretamente na planilha a qualquer momento (ex.: corrigir uma contagem, ou mudar o mínimo de um item).
 - **Movimentos**: histórico de tudo — cada consumo lançado numa reserva (saída de estoque) e cada reabastecimento registrado pelo administrador (entrada de estoque), com data/hora.
+- **Observacoes**: uma linha por reserva com a observação atual e quando foi atualizada pela última vez.
 
 ### Sobre o código-fonte da API (`apps-script/Code.gs`)
 

@@ -282,17 +282,42 @@ function apiPost(payload){
   return fetchWithTimeout_(FRIGOBAR_API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(payload) })
     .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
+function apiGetObservacoes(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=observacoes').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function apiSaveObs(reservaChave, reservaLabel, obs){
+  return apiPost({action:'salvarObs', reservaChave:reservaChave, reservaLabel:reservaLabel, obs:obs});
+}
 
 let estoqueCache = [];
 let frigobarTotalsCache = {};
+let obsCache = {};
 let currentDetailFbItems = [];
+let obsSaveTimer = null;
+let obsSavePending = null;
+
+function scheduleObsSave(chave, label, val){
+  obsSavePending = {chave:chave, label:label, val:val};
+  clearTimeout(obsSaveTimer);
+  obsSaveTimer = setTimeout(flushObsSave, 800);
+}
+function flushObsSave(){
+  clearTimeout(obsSaveTimer);
+  obsSaveTimer = null;
+  if(obsSavePending){
+    const p = obsSavePending;
+    obsSavePending = null;
+    apiSaveObs(p.chave, p.label, p.val).catch(() => {});
+  }
+}
 
 function refreshFrigobarCache(){
   if(!apiAvailable()) return;
-  Promise.all([apiGetEstoque(), apiGetTotais()])
-    .then(([estoque, totais]) => {
+  Promise.all([apiGetEstoque(), apiGetTotais(), apiGetObservacoes()])
+    .then(([estoque, totais, obs]) => {
       estoqueCache = estoque;
       frigobarTotalsCache = totais;
+      obsCache = obs;
       renderStock();
       render();
     })
@@ -643,6 +668,7 @@ function openDetailsModal(key){
   }
 }
 function closeDetailsModal(){
+  flushObsSave();
   document.getElementById('detailsModal').style.display = 'none';
   currentDetailKey = null;
   render();
@@ -659,13 +685,15 @@ function populateDetailsSelect(){
   }).join('');
 }
 function selectDetailsRes(key){
+  flushObsSave();
   currentDetailKey = key || null;
   renderDetailsBody();
 }
 function renderDetailsBody(){
   const box = document.getElementById('detailsBody');
   if(!currentDetailKey){ box.innerHTML = '<p class="empty">Selecione uma reserva acima.</p>'; return; }
-  const detail = getDetail(currentDetailKey);
+  const localDetail = getDetail(currentDetailKey);
+  const obsValue = apiAvailable() ? (obsCache[currentDetailKey] || '') : (localDetail.obs || '');
   const frigobarForm = isAdmin ? `
     <div class="frigobar-add">
       <select id="fbItemPreset" onchange="applyFbPreset(this.value)">${catalogOptionsHtml()}</select>
@@ -679,16 +707,24 @@ function renderDetailsBody(){
     ? '<span class="sync-note">(sincronizado entre todos os dispositivos)</span>'
     : '<span class="sync-note">(salvo apenas neste navegador — veja o README para sincronizar)</span>';
   box.innerHTML = `
-    <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...)</label>
-    <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${detail.obs || ''}</textarea>
+    <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...) ${syncNote}</label>
+    <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${obsValue}</textarea>
     <hr>
     <label>Consumo de frigobar ${syncNote}</label>
     ${frigobarForm}
     <div id="fbTableWrap"><p class="empty">Carregando…</p></div>
   `;
   document.getElementById('obsText').addEventListener('input', function(){
-    detail.obs = this.value;
-    saveDetails();
+    const val = this.value;
+    if(apiAvailable()){
+      obsCache[currentDetailKey] = val;
+      const sel = document.getElementById('detailsResSelect');
+      const label = sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : currentDetailKey;
+      scheduleObsSave(currentDetailKey, label, val);
+    } else {
+      localDetail.obs = val;
+      saveDetails();
+    }
   });
   loadFrigobarTableFor(currentDetailKey);
 }
@@ -795,9 +831,9 @@ function makeCard(res, isCheckout){
   const pClass = platformClass(res.platform);
   const guests = res.adultos + res.criancas;
   const key = resKey(res);
-  const detail = getDetail(key);
   const fbTotal = frigobarTotal(key);
-  const hasObs = detail.obs && detail.obs.trim() !== '';
+  const obsText = apiAvailable() ? (obsCache[key] || '') : (getDetail(key).obs || '');
+  const hasObs = obsText.trim() !== '';
   const pay = paymentBadge(res, key, isCheckout);
   const cabana = res.acomodacao || res.unidade || '(sem cabana)';
   return `<div class="card p-${pClass}" data-detail-key="${key}" title="Clique para ver observações e frigobar">

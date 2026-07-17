@@ -1,8 +1,8 @@
 /**
- * API de estoque e movimentos de frigobar para o Painel Semanal de Reservas
- * (Encantos de Altitude). Cole este código no Apps Script vinculado a uma
- * planilha Google (Extensões > Apps Script) e publique como Web App.
- * Veja o passo a passo completo no README.md do repositório.
+ * API de estoque, movimentos de frigobar e observações para o Painel Semanal
+ * de Reservas (Encantos de Altitude). Cole este código no Apps Script
+ * vinculado a uma planilha Google (Extensões > Apps Script) e publique como
+ * Web App. Veja o passo a passo completo no README.md do repositório.
  *
  * O estoque é controlado POR CABANA/CONTAINER (cada unidade tem seu próprio
  * frigobar), não um estoque central único.
@@ -10,6 +10,7 @@
 
 var SHEET_ESTOQUE = 'Estoque';
 var SHEET_MOVIMENTOS = 'Movimentos';
+var SHEET_OBSERVACOES = 'Observacoes';
 var DEFAULT_MINIMO = 2;
 
 function getSheet_(name){
@@ -19,6 +20,7 @@ function getSheet_(name){
     sh = ss.insertSheet(name);
     if(name === SHEET_ESTOQUE) sh.appendRow(['Cabana','Item','Estoque','Minimo']);
     if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Cabana','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel']);
+    if(name === SHEET_OBSERVACOES) sh.appendRow(['ReservaChave','ReservaLabel','Observacao','AtualizadoEm']);
   }
   return sh;
 }
@@ -36,6 +38,8 @@ function doGet(e){
     result = getTotaisPorReserva_();
   } else if(action === 'movimentos'){
     result = getMovimentosPorReserva_(e.parameter.reserva || '');
+  } else if(action === 'observacoes'){
+    result = getObservacoes_();
   } else {
     result = {error:'ação inválida'};
   }
@@ -51,6 +55,8 @@ function doPost(e){
     result = registrarRestock_(body);
   } else if(body.action === 'remover'){
     result = removerMovimento_(body.id);
+  } else if(body.action === 'salvarObs'){
+    result = salvarObs_(body);
   } else {
     result = {ok:false, error:'ação inválida'};
   }
@@ -141,4 +147,35 @@ function getMovimentosPorReserva_(chave){
     }
   }
   return out;
+}
+
+function getObservacoes_(){
+  var sh = getSheet_(SHEET_OBSERVACOES);
+  var data = sh.getDataRange().getValues();
+  var out = {};
+  for(var i=1;i<data.length;i++){
+    if(data[i][0] && data[i][2]) out[data[i][0]] = data[i][2];
+  }
+  return out;
+}
+
+function findObsRow_(sh, chave){
+  var data = sh.getDataRange().getValues();
+  for(var i=1;i<data.length;i++){
+    if(String(data[i][0]) === String(chave)) return i+1;
+  }
+  return -1;
+}
+
+function salvarObs_(body){
+  var sh = getSheet_(SHEET_OBSERVACOES);
+  var row = findObsRow_(sh, body.reservaChave);
+  if(row === -1){
+    sh.appendRow([body.reservaChave, body.reservaLabel||'', body.obs||'', new Date()]);
+  } else {
+    sh.getRange(row,2).setValue(body.reservaLabel||'');
+    sh.getRange(row,3).setValue(body.obs||'');
+    sh.getRange(row,4).setValue(new Date());
+  }
+  return {ok:true};
 }
