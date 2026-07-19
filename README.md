@@ -46,8 +46,13 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 ## Controle de faxinas
 
 - Toda reserva com data de check-out aparece com o badge **"🧹 Faxina pendente"** até alguém marcar como executada. Dentro de "Ver detalhes de uma reserva", o botão **"Marcar faxina como executada"** (visível para administrador e faxineira) registra a data e, opcionalmente, quem executou.
-- O botão **"🧹 Faxinas"** (só para administrador) abre um painel com todas as faxinas: cabana, hóspede, check-out, status, data de execução, valor e se já foi paga. Mostra o **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas) e permite marcar cada uma como paga (registra a data do pagamento).
-- O valor padrão por faxina é configurável no topo do painel "🧹 Faxinas" e vale para as próximas faxinas marcadas como executadas.
+- O botão **"🧹 Faxinas"** (administrador e faxineira) abre um **calendário em colunas por dia** — igual ao quadro de reservas — mostrando as cabanas/containers que precisam de faxina em cada dia de check-out. Clique em qualquer card para abrir os detalhes daquela faxina. Use "« Semana anterior" / "Próxima semana »" para navegar. Para o administrador, cada card mostra também valor e se já foi paga; a faxineira não vê esses dados.
+- Dentro da seção "🧹 Faxina" dos detalhes de uma reserva, além de marcar como executada, é possível:
+  - Escrever **observações de manutenção** (ex.: "torneira pingando"), sincronizadas junto com a faxina.
+  - **"🔧 Solicitar manutenção"** — registra um pedido de manutenção para aquela cabana (visível no painel "🔧 Manutenção" do administrador).
+  - **"📦 Solicitar material"** — registra um pedido de material/reposição (ex.: prato quebrado), visível no painel "📦 Materiais" do administrador.
+- O administrador marca cada solicitação de manutenção ou material como concluída nos respectivos painéis.
+- No painel de faxinas do administrador, mostra o **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas) e permite marcar cada uma como paga (registra a data do pagamento). O valor padrão por faxina é configurável no topo desse painel.
 
 ### ⚠️ Importante sobre o código de administrador
 
@@ -82,14 +87,16 @@ Por padrão (`FRIGOBAR_API_URL` vazio em `index.html`), observações e frigobar
 
 ### O que fica registrado na planilha
 
-O script cria seis abas sozinho na primeira vez que for usado:
+O script cria oito abas sozinho na primeira vez que for usado:
 
 - **Estoque**: uma linha por cabana/container + item (Água, Cerveja, etc.) com a quantidade atual e o mínimo antes de disparar o aviso "⚠️ repor". Você pode editar essas colunas diretamente na planilha a qualquer momento (ex.: corrigir uma contagem, ou mudar o mínimo de um item).
 - **Movimentos**: histórico de tudo — cada consumo lançado numa reserva (saída de estoque) e cada reabastecimento registrado pelo administrador (entrada de estoque), com data/hora.
 - **Observacoes**: uma linha por reserva com a observação atual e quando foi atualizada pela última vez.
 - **Produtos**: uma linha por produto do catálogo de frigobar (nome e preço), editável pelo administrador direto no painel (botão "🧾 Produtos do frigobar") ou diretamente na planilha.
-- **Faxinas**: uma linha por reserva com faxina marcada como executada (cabana, data de execução, quem executou, valor, se já foi paga e a data do pagamento).
+- **Faxinas**: uma linha por reserva com faxina marcada como executada (cabana, data de execução, quem executou, valor, se já foi paga, data do pagamento e observações de manutenção).
 - **Config**: pares chave/valor genéricos; hoje guarda só `valorFaxina` (valor padrão pago por faxina), editável no painel "🧹 Faxinas".
+- **OrdensServico**: cada solicitação de manutenção feita pela faxineira ou administrador (cabana, descrição, data, status aberta/concluída), visível no painel "🔧 Manutenção".
+- **PedidosMaterial**: cada solicitação de material/reposição (cabana, descrição, data, status aberto/concluído), visível no painel "📦 Materiais".
 
 ### Sobre o código-fonte da API (`apps-script/Code.gs`)
 

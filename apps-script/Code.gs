@@ -14,6 +14,8 @@ var SHEET_OBSERVACOES = 'Observacoes';
 var SHEET_PRODUTOS = 'Produtos';
 var SHEET_FAXINAS = 'Faxinas';
 var SHEET_CONFIG = 'Config';
+var SHEET_ORDENS_SERVICO = 'OrdensServico';
+var SHEET_PEDIDOS_MATERIAL = 'PedidosMaterial';
 var DEFAULT_MINIMO = 2;
 
 function getSheet_(name){
@@ -25,8 +27,10 @@ function getSheet_(name){
     if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Cabana','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel']);
     if(name === SHEET_OBSERVACOES) sh.appendRow(['ReservaChave','ReservaLabel','Observacao','AtualizadoEm']);
     if(name === SHEET_PRODUTOS) sh.appendRow(['Nome','Preco']);
-    if(name === SHEET_FAXINAS) sh.appendRow(['ReservaChave','ReservaLabel','Cabana','DataExecucao','ExecutadoPor','Valor','Pago','DataPagamento']);
+    if(name === SHEET_FAXINAS) sh.appendRow(['ReservaChave','ReservaLabel','Cabana','DataExecucao','ExecutadoPor','Valor','Pago','DataPagamento','ObsManutencao']);
     if(name === SHEET_CONFIG) sh.appendRow(['Chave','Valor']);
+    if(name === SHEET_ORDENS_SERVICO) sh.appendRow(['ID','Timestamp','Cabana','ReservaChave','ReservaLabel','Descricao','Status']);
+    if(name === SHEET_PEDIDOS_MATERIAL) sh.appendRow(['ID','Timestamp','Cabana','ReservaChave','ReservaLabel','Descricao','Status']);
   }
   return sh;
 }
@@ -52,6 +56,10 @@ function doGet(e){
     result = getFaxinas_();
   } else if(action === 'config'){
     result = getConfig_();
+  } else if(action === 'ordensServico'){
+    result = getOrdensServico_();
+  } else if(action === 'pedidosMaterial'){
+    result = getPedidosMaterial_();
   } else {
     result = {error:'ação inválida'};
   }
@@ -77,6 +85,14 @@ function doPost(e){
     result = salvarFaxina_(body);
   } else if(body.action === 'salvarConfig'){
     result = salvarConfig_(body);
+  } else if(body.action === 'criarOrdemServico'){
+    result = criarOrdemServico_(body);
+  } else if(body.action === 'concluirOrdemServico'){
+    result = concluirOrdemServico_(body.id);
+  } else if(body.action === 'criarPedidoMaterial'){
+    result = criarPedidoMaterial_(body);
+  } else if(body.action === 'concluirPedidoMaterial'){
+    result = concluirPedidoMaterial_(body.id);
   } else {
     result = {ok:false, error:'ação inválida'};
   }
@@ -250,7 +266,7 @@ function getFaxinas_(){
       reservaChave: data[i][0], reservaLabel: data[i][1], cabana: data[i][2],
       dataExecucao: data[i][3], executadoPor: data[i][4],
       valor: Number(data[i][5])||0, pago: data[i][6] === true || data[i][6] === 'TRUE' || data[i][6] === 'true',
-      dataPagamento: data[i][7]
+      dataPagamento: data[i][7], obsManutencao: data[i][8]||''
     });
   }
   return out;
@@ -267,7 +283,7 @@ function findFaxinaRow_(sh, chave){
 function salvarFaxina_(body){
   var sh = getSheet_(SHEET_FAXINAS);
   var row = findFaxinaRow_(sh, body.reservaChave);
-  var linha = [body.reservaChave, body.reservaLabel||'', body.cabana||'', body.dataExecucao||'', body.executadoPor||'', Number(body.valor)||0, !!body.pago, body.dataPagamento||''];
+  var linha = [body.reservaChave, body.reservaLabel||'', body.cabana||'', body.dataExecucao||'', body.executadoPor||'', Number(body.valor)||0, !!body.pago, body.dataPagamento||'', body.obsManutencao||''];
   if(row === -1){
     sh.appendRow(linha);
   } else {
@@ -303,4 +319,64 @@ function salvarConfig_(body){
     sh.getRange(row,2).setValue(body.valor);
   }
   return {ok:true};
+}
+
+function getOrdensServico_(){
+  var sh = getSheet_(SHEET_ORDENS_SERVICO);
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for(var i=1;i<data.length;i++){
+    if(!data[i][0]) continue;
+    out.push({id:data[i][0], data:data[i][1], cabana:data[i][2], reservaChave:data[i][3], reservaLabel:data[i][4], descricao:data[i][5], status:data[i][6]});
+  }
+  return out;
+}
+
+function criarOrdemServico_(body){
+  var sh = getSheet_(SHEET_ORDENS_SERVICO);
+  var id = Utilities.getUuid();
+  sh.appendRow([id, body.data || new Date().toLocaleString('pt-BR'), body.cabana||'', body.reservaChave||'', body.reservaLabel||'', body.descricao||'', 'aberta']);
+  return {ok:true, id:id};
+}
+
+function concluirOrdemServico_(id){
+  var sh = getSheet_(SHEET_ORDENS_SERVICO);
+  var data = sh.getDataRange().getValues();
+  for(var i=1;i<data.length;i++){
+    if(data[i][0] === id){
+      sh.getRange(i+1,7).setValue('concluida');
+      return {ok:true};
+    }
+  }
+  return {ok:false, error:'ordem de serviço não encontrada'};
+}
+
+function getPedidosMaterial_(){
+  var sh = getSheet_(SHEET_PEDIDOS_MATERIAL);
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for(var i=1;i<data.length;i++){
+    if(!data[i][0]) continue;
+    out.push({id:data[i][0], data:data[i][1], cabana:data[i][2], reservaChave:data[i][3], reservaLabel:data[i][4], descricao:data[i][5], status:data[i][6]});
+  }
+  return out;
+}
+
+function criarPedidoMaterial_(body){
+  var sh = getSheet_(SHEET_PEDIDOS_MATERIAL);
+  var id = Utilities.getUuid();
+  sh.appendRow([id, body.data || new Date().toLocaleString('pt-BR'), body.cabana||'', body.reservaChave||'', body.reservaLabel||'', body.descricao||'', 'aberto']);
+  return {ok:true, id:id};
+}
+
+function concluirPedidoMaterial_(id){
+  var sh = getSheet_(SHEET_PEDIDOS_MATERIAL);
+  var data = sh.getDataRange().getValues();
+  for(var i=1;i<data.length;i++){
+    if(data[i][0] === id){
+      sh.getRange(i+1,7).setValue('concluido');
+      return {ok:true};
+    }
+  }
+  return {ok:false, error:'pedido de material não encontrado'};
 }
