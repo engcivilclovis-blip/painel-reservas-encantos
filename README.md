@@ -1,6 +1,6 @@
 # Painel Semanal de Reservas — Encantos de Altitude
 
-Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: check-ins, check-outs, cabana, hóspedes, plataforma (Booking/Airbnb/Próprio), saldo a cobrar, observações e consumo de frigobar.
+Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: check-ins, check-outs, cabana, hóspedes, plataforma (Booking/Airbnb/Próprio), saldo a cobrar, observações e consumo de frigobar. Também permite escolher um intervalo de datas personalizado, imprimir o período em PDF A4, gerar a fatura de fechamento do frigobar por reserva, imprimir o cardápio de produtos e (para administradores) cadastrar/editar/remover produtos do frigobar.
 
 ## Como funciona
 
@@ -15,6 +15,14 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 4. Faça o commit direto na branch `main`.
 5. Aguarde cerca de 1 minuto e recarregue a página publicada (ou clique no botão **"🔄 Atualizar dados"** dentro do painel) — os dados aparecem atualizados para todo mundo automaticamente.
 
+## Intervalo de datas personalizado e impressão em PDF
+
+- Além da navegação semana a semana ("« Semana anterior" / "Próxima semana »"), é possível escolher um período qualquer preenchendo **De** / **Até** na barra de ferramentas e clicando em **"Aplicar intervalo"**. O botão **"Voltar à semana"** aparece para desfazer e retornar à navegação normal.
+- **"🖨️ Imprimir período (PDF)"** abre a caixa de impressão do navegador (Ctrl+P) já formatada em A4 paisagem com a lista de entradas/saídas do período exibido — escolha "Salvar como PDF" no destino da impressão para gerar o arquivo.
+- **"🍽️ Cardápio"** imprime a lista de produtos do frigobar com preços, em A4 retrato — útil para deixar impresso nas cabanas/containers.
+- Dentro de **"Ver detalhes de uma reserva"**, o botão **"🖨️ Imprimir fatura"** (ao lado de "Consumo de frigobar") gera a fatura de fechamento daquela reserva: itens consumidos, saldo da reserva e total a pagar — para entregar ao hóspede na saída.
+- Em todos os casos o conteúdo impresso é gerado dinamicamente e enviado direto para o diálogo de impressão do navegador; não é necessária nenhuma biblioteca externa de PDF.
+
 ## Papéis de acesso (administrador x visualização)
 
 - **Sem login**: qualquer pessoa que abrir o link vê o calendário completo, navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais) — sincronizadas entre todos os dispositivos quando a API estiver configurada (veja abaixo). Também vê a barra de estoque de frigobar (se a sincronização estiver configurada).
@@ -22,6 +30,7 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
   - Importar/colar CSV manualmente dentro do próprio painel (além do fluxo normal via GitHub).
   - Lançar e remover itens de consumo de frigobar por reserva.
   - Registrar reabastecimento de estoque (botão "📦 Estoque de frigobar", só aparece com a sincronização configurada).
+  - Cadastrar, editar e remover produtos do catálogo de frigobar (botão "🧾 Produtos do frigobar").
 
 ### ⚠️ Importante sobre o código de administrador
 
@@ -56,11 +65,12 @@ Por padrão (`FRIGOBAR_API_URL` vazio em `index.html`), observações e frigobar
 
 ### O que fica registrado na planilha
 
-O script cria três abas sozinho na primeira vez que for usado:
+O script cria quatro abas sozinho na primeira vez que for usado:
 
 - **Estoque**: uma linha por cabana/container + item (Água, Cerveja, etc.) com a quantidade atual e o mínimo antes de disparar o aviso "⚠️ repor". Você pode editar essas colunas diretamente na planilha a qualquer momento (ex.: corrigir uma contagem, ou mudar o mínimo de um item).
 - **Movimentos**: histórico de tudo — cada consumo lançado numa reserva (saída de estoque) e cada reabastecimento registrado pelo administrador (entrada de estoque), com data/hora.
 - **Observacoes**: uma linha por reserva com a observação atual e quando foi atualizada pela última vez.
+- **Produtos**: uma linha por produto do catálogo de frigobar (nome e preço), editável pelo administrador direto no painel (botão "🧾 Produtos do frigobar") ou diretamente na planilha.
 
 ### Sobre o código-fonte da API (`apps-script/Code.gs`)
 

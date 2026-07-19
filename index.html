@@ -37,7 +37,7 @@
   .week-nav{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;color:var(--brand-charcoal);}
   .summary-bar{display:flex;gap:20px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#5a5049;}
   .summary-bar b{font-size:15px;color:var(--brand-charcoal);}
-  .board{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;}
+  .board{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;overflow-x:auto;}
   @media (max-width:1000px){ .board{grid-template-columns:repeat(4,1fr);} }
   @media (max-width:680px){ .board{grid-template-columns:repeat(2,1fr);} }
   @media (max-width:420px){ .board{grid-template-columns:1fr;} }
@@ -92,6 +92,19 @@
   .admin-modal input[type=password]{width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin:8px 0;}
   .admin-error{color:#c0392b;font-size:12px;margin-bottom:8px;display:none;}
   .admin-error.show{display:block;}
+
+  #printArea{display:none;}
+  .print-header{text-align:center;margin-bottom:14px;}
+  .print-header h1{font-size:20px;margin:0 0 4px;font-family:'Playfair Display',Georgia,serif;}
+  .print-header div{font-size:12px;color:#555;}
+  .print-table{width:100%;border-collapse:collapse;font-size:12px;}
+  .print-table th, .print-table td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top;}
+  .print-total{margin-top:14px;font-size:14px;text-align:right;}
+  @media print{
+    body *{visibility:hidden;}
+    #printArea, #printArea *{visibility:visible;}
+    #printArea{display:block;position:absolute;left:0;top:0;width:100%;}
+  }
 </style>
 </head>
 <body>
@@ -146,9 +159,18 @@
     <span class="status" id="statusMsg">Nenhum dado carregado ainda.</span>
   </div>
   <div class="toolbar-row">
+    <label class="chk">De: <input type="date" id="rangeStartInput"></label>
+    <label class="chk">Até: <input type="date" id="rangeEndInput"></label>
+    <button class="secondary" onclick="applyDateRange()">Aplicar intervalo</button>
+    <button class="secondary" id="clearRangeBtn" onclick="clearDateRange()" style="display:none;">Voltar à semana</button>
+    <button class="secondary" onclick="imprimirSemana()">🖨️ Imprimir período (PDF)</button>
+    <button class="secondary" onclick="imprimirCardapio()">🍽️ Cardápio</button>
+  </div>
+  <div class="toolbar-row">
     <button class="btn-details" onclick="openDetailsModal()">📋 Ver detalhes de uma reserva (observações / frigobar)</button>
     <button class="btn-admin" id="adminToggleBtn" onclick="toggleAdmin()">🔒 Entrar como administrador</button>
     <button class="btn-details" id="stockBtn" onclick="openStockModal()" style="display:none;">📦 Estoque de frigobar</button>
+    <button class="btn-details" id="productsBtn" onclick="openProductsModal()" style="display:none;">🧾 Produtos do frigobar</button>
   </div>
 </div>
 
@@ -216,6 +238,26 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="productsModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Produtos do Frigobar</h2>
+      <button class="secondary" onclick="closeProductsModal()">Fechar</button>
+    </div>
+    <div id="productsList"></div>
+    <hr>
+    <label>Adicionar / editar produto</label>
+    <div class="frigobar-add">
+      <input type="text" id="prodNome" placeholder="Nome do produto">
+      <input type="number" id="prodPreco" placeholder="Preço (R$)" step="0.01" style="width:110px">
+      <button onclick="salvarProdutoUI()">Salvar</button>
+      <button class="secondary" id="cancelProdBtn" onclick="cancelarEdicaoProduto()" style="display:none;">Cancelar edição</button>
+    </div>
+  </div>
+</div>
+
+<div id="printArea"></div>
+
 <script>
 // Código de acesso do administrador. Troque este valor antes de publicar o painel
 // (qualquer pessoa com acesso ao código-fonte da página pode ler esta linha —
@@ -228,8 +270,10 @@ let isAdmin = false;
 // apenas neste navegador, sem sincronizar com outros dispositivos.
 const FRIGOBAR_API_URL = 'https://script.google.com/macros/s/AKfycbytiStVdXSsnoN0lQD5EIY5iaMj7jFzoKNdKwku7B9q2PuxgNlgHRir8g1R8DQzR_bM/exec';
 
-// Catálogo real de produtos do frigobar (nome e preço de venda).
-const PRODUCT_CATALOG = [
+// Catálogo real de produtos do frigobar (nome e preço de venda). Serve de valor
+// inicial/fallback; quando a API estiver configurada, o catálogo é substituído
+// pelo que estiver cadastrado na planilha (aba Produtos), editável pelo administrador.
+let productCatalog = [
   {nome:'ENCANTOS DE ALTITUDE Sauvignon Blanc', preco:159},
   {nome:'ENCANTOS DE ALTITUDE Merlot', preco:165},
   {nome:'ENCANTOS DE ALTITUDE Espumante Brut 750ml', preco:65},
@@ -244,7 +288,7 @@ const PRODUCT_CATALOG = [
 const CABANAS = ['CABANA VERDE','CABANA ROSA','CABANA AZUL','CONTAINER A','CONTAINER B'];
 
 function catalogOptionsHtml(){
-  return '<option value="">Item personalizado…</option>' + PRODUCT_CATALOG.map(p =>
+  return '<option value="">Item personalizado…</option>' + productCatalog.map(p =>
     '<option value="' + p.nome + '|' + p.preco + '">' + p.nome + ' — ' + fmtMoney(p.preco) + '</option>'
   ).join('');
 }
@@ -288,6 +332,23 @@ function apiGetObservacoes(){
 function apiSaveObs(reservaChave, reservaLabel, obs){
   return apiPost({action:'salvarObs', reservaChave:reservaChave, reservaLabel:reservaLabel, obs:obs});
 }
+function apiGetProdutos(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=produtos').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function apiSalvarProduto(nome, preco, nomeOriginal){
+  return apiPost({action:'salvarProduto', nome:nome, preco:preco, nomeOriginal:nomeOriginal||nome});
+}
+function apiRemoverProduto(nome){
+  return apiPost({action:'removerProduto', nome:nome});
+}
+function reloadProdutos(){
+  if(!apiAvailable()) return Promise.resolve();
+  return apiGetProdutos().then(produtos => {
+    if(produtos && produtos.length) productCatalog = produtos;
+    renderProductsList();
+    populateCatalogSelects();
+  }).catch(() => {});
+}
 
 let estoqueCache = [];
 let frigobarTotalsCache = {};
@@ -313,11 +374,12 @@ function flushObsSave(){
 
 function refreshFrigobarCache(){
   if(!apiAvailable()) return;
-  Promise.all([apiGetEstoque(), apiGetTotais(), apiGetObservacoes()])
-    .then(([estoque, totais, obs]) => {
+  Promise.all([apiGetEstoque(), apiGetTotais(), apiGetObservacoes(), apiGetProdutos()])
+    .then(([estoque, totais, obs, produtos]) => {
       estoqueCache = estoque;
       frigobarTotalsCache = totais;
       obsCache = obs;
+      if(produtos && produtos.length) productCatalog = produtos;
       renderStock();
       render();
     })
@@ -376,6 +438,76 @@ function registrarReabastecimento(){
     .catch(() => alert('Não foi possível registrar agora. Verifique sua conexão e tente novamente.'));
 }
 
+// ---------- Produtos do frigobar (cadastro/edição pelo administrador) ----------
+let editingProdutoNome = null;
+function openProductsModal(){
+  document.getElementById('productsModal').style.display = 'flex';
+  renderProductsList();
+}
+function closeProductsModal(){
+  document.getElementById('productsModal').style.display = 'none';
+  cancelarEdicaoProduto();
+}
+function renderProductsList(){
+  const box = document.getElementById('productsList');
+  if(!productCatalog.length){ box.innerHTML = '<p class="empty">Nenhum produto cadastrado.</p>'; return; }
+  box.innerHTML = '<table class="fb-table"><thead><tr><th>Item</th><th>Preço</th><th></th></tr></thead><tbody>' +
+    productCatalog.map(p => '<tr><td>' + p.nome + '</td><td>' + fmtMoney(p.preco) + '</td><td>' +
+      '<button class="mini secondary" onclick="editarProdutoUI(\'' + encodeURIComponent(p.nome) + '\')">editar</button> ' +
+      '<button class="mini secondary" onclick="removerProdutoUI(\'' + encodeURIComponent(p.nome) + '\')">remover</button></td></tr>').join('') +
+    '</tbody></table>';
+}
+function editarProdutoUI(nomeEncoded){
+  const nome = decodeURIComponent(nomeEncoded);
+  const p = productCatalog.find(x => x.nome === nome);
+  if(!p) return;
+  editingProdutoNome = nome;
+  document.getElementById('prodNome').value = p.nome;
+  document.getElementById('prodPreco').value = p.preco;
+  document.getElementById('cancelProdBtn').style.display = 'inline-block';
+}
+function cancelarEdicaoProduto(){
+  editingProdutoNome = null;
+  document.getElementById('prodNome').value = '';
+  document.getElementById('prodPreco').value = '';
+  document.getElementById('cancelProdBtn').style.display = 'none';
+}
+function salvarProdutoUI(){
+  if(!isAdmin){ alert('Somente administradores podem editar produtos.'); return; }
+  const nome = document.getElementById('prodNome').value.trim();
+  const preco = parseFloat(document.getElementById('prodPreco').value);
+  if(!nome || isNaN(preco)){ alert('Informe nome e preço válidos.'); return; }
+  if(apiAvailable()){
+    apiSalvarProduto(nome, preco, editingProdutoNome)
+      .then(() => { cancelarEdicaoProduto(); reloadProdutos(); })
+      .catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    if(editingProdutoNome){
+      const p = productCatalog.find(x => x.nome === editingProdutoNome);
+      if(p){ p.nome = nome; p.preco = preco; }
+    } else {
+      productCatalog.push({nome, preco});
+    }
+    cancelarEdicaoProduto();
+    renderProductsList();
+    populateCatalogSelects();
+  }
+}
+function removerProdutoUI(nomeEncoded){
+  if(!isAdmin){ alert('Somente administradores podem editar produtos.'); return; }
+  const nome = decodeURIComponent(nomeEncoded);
+  if(!confirm('Remover "' + nome + '" do catálogo?')) return;
+  if(apiAvailable()){
+    apiRemoverProduto(nome)
+      .then(() => reloadProdutos())
+      .catch(() => alert('Não foi possível remover agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    productCatalog = productCatalog.filter(p => p.nome !== nome);
+    renderProductsList();
+    populateCatalogSelects();
+  }
+}
+
 let reservations = [];
 let weekStart = mondayOf(new Date());
 const LS_CSV_KEY = 'painelUltimoCSV';
@@ -425,6 +557,7 @@ function updateAdminUI(){
   btn.textContent = isAdmin ? '🔓 Administrador (clique para sair)' : '🔒 Entrar como administrador';
   btn.classList.toggle('is-active', isAdmin);
   document.getElementById('stockBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
+  document.getElementById('productsBtn').style.display = isAdmin ? 'inline-block' : 'none';
 }
 
 // ---------- Utilitários ----------
@@ -633,10 +766,44 @@ function loadSample(){
   loadCSVText(sample, false, 'exemplo');
 }
 
-// ---------- Navegação de semana ----------
+// ---------- Navegação de semana / intervalo personalizado ----------
+let customRange = null; // {start:Date, end:Date} ou null (modo semana padrão)
 function changeWeek(delta){ weekStart.setDate(weekStart.getDate() + delta*7); render(); }
 function goToday(){ weekStart = mondayOf(new Date()); render(); }
 function jumpToDate(val){ if(val){ weekStart = mondayOf(new Date(val)); render(); } }
+function applyDateRange(){
+  const s = document.getElementById('rangeStartInput').value;
+  const e = document.getElementById('rangeEndInput').value;
+  if(!s || !e){ alert('Escolha a data inicial e a data final.'); return; }
+  const start = new Date(s + 'T00:00:00');
+  const end = new Date(e + 'T00:00:00');
+  if(end < start){ alert('A data final precisa ser igual ou depois da data inicial.'); return; }
+  customRange = {start:start, end:end};
+  document.getElementById('clearRangeBtn').style.display = 'inline-block';
+  render();
+}
+function clearDateRange(){
+  customRange = null;
+  document.getElementById('clearRangeBtn').style.display = 'none';
+  render();
+}
+function getDisplayedDays(){
+  if(customRange){
+    const days = [];
+    let d = new Date(customRange.start);
+    while(d <= customRange.end){
+      days.push(new Date(d));
+      d.setDate(d.getDate()+1);
+    }
+    return days;
+  }
+  const days = [];
+  for(let i=0;i<7;i++){
+    const day = new Date(weekStart); day.setDate(day.getDate()+i);
+    days.push(day);
+  }
+  return days;
+}
 
 // ---------- Detalhes da reserva (observações + frigobar) ----------
 function resKey(res){
@@ -710,7 +877,7 @@ function renderDetailsBody(){
     <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...) ${syncNote}</label>
     <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${obsValue}</textarea>
     <hr>
-    <label>Consumo de frigobar ${syncNote}</label>
+    <label>Consumo de frigobar ${syncNote} <button class="mini secondary" onclick="imprimirFaturaFrigobar()">🖨️ Imprimir fatura</button></label>
     ${frigobarForm}
     <div id="fbTableWrap"><p class="empty">Carregando…</p></div>
   `;
@@ -854,15 +1021,17 @@ function render(){
   board.innerHTML = '';
   const showCancelled = document.getElementById('showCancelled').checked;
   const today = new Date();
-  const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate()+6);
+  const days = getDisplayedDays();
+  const rangeEnd = days[days.length-1];
   document.getElementById('weekLabel').textContent =
-    weekStart.toLocaleDateString('pt-BR') + ' a ' + weekEnd.toLocaleDateString('pt-BR');
+    days[0].toLocaleDateString('pt-BR') + ' a ' + rangeEnd.toLocaleDateString('pt-BR');
+  board.style.gridTemplateColumns = customRange ? ('repeat(' + days.length + ', minmax(140px, 1fr))') : '';
 
   let weekEntradas = 0, weekSaidas = 0, weekACobrar = 0, weekFrigobar = 0;
 
-  for(let i=0;i<7;i++){
-    const day = new Date(weekStart); day.setDate(day.getDate()+i);
+  days.forEach(day => {
     const isToday = sameDay(day, today);
+    const dayName = DAY_NAMES[(day.getDay()+6)%7];
 
     const entradas = reservations.filter(r => sameDay(r.checkin, day) &&
       (showCancelled || !norm(r.status).includes('cancel')));
@@ -882,7 +1051,7 @@ function render(){
     col.className = 'day-col';
     col.innerHTML = `
       <div class="day-head ${isToday?'today':''}">
-        <div class="dname">${DAY_NAMES[i]}</div>
+        <div class="dname">${dayName}</div>
         <div class="ddate">${day.getDate().toString().padStart(2,'0')}/${(day.getMonth()+1).toString().padStart(2,'0')}</div>
       </div>
       <div class="section-label">Entradas (${entradas.length})</div>
@@ -891,14 +1060,89 @@ function render(){
       <div class="cards">${saidas.length ? saidas.map(r=>makeCard(r,true)).join('') : '<div class="empty">Sem check-outs</div>'}</div>
     `;
     board.appendChild(col);
-  }
+  });
 
   document.getElementById('summaryBar').innerHTML = `
-    <span>Entradas na semana: <b>${weekEntradas}</b></span>
-    <span>Saídas na semana: <b>${weekSaidas}</b></span>
+    <span>Entradas no período: <b>${weekEntradas}</b></span>
+    <span>Saídas no período: <b>${weekSaidas}</b></span>
     <span>A cobrar nas saídas (saldo + frigobar): <b>${fmtMoney(weekACobrar)}</b></span>
     <span>Frigobar cobrado nas saídas: <b>${fmtMoney(weekFrigobar)}</b></span>
   `;
+}
+
+// ---------- Impressão (PDF via window.print) ----------
+function setPrintOrientation(orientation){
+  let style = document.getElementById('printPageStyle');
+  if(!style){
+    style = document.createElement('style');
+    style.id = 'printPageStyle';
+    document.head.appendChild(style);
+  }
+  style.textContent = '@page{ size: A4 ' + orientation + '; margin: 14mm; }';
+}
+function printContent(html, orientation){
+  setPrintOrientation(orientation || 'portrait');
+  document.getElementById('printArea').innerHTML = html;
+  setTimeout(function(){ window.print(); }, 50);
+}
+function printHeaderHtml(subtitle){
+  return '<div class="print-header"><h1>Encantos de Altitude</h1><div>' + subtitle + '</div></div>';
+}
+function imprimirSemana(){
+  const showCancelled = document.getElementById('showCancelled').checked;
+  const days = getDisplayedDays();
+  const periodo = days[0].toLocaleDateString('pt-BR') + ' a ' + days[days.length-1].toLocaleDateString('pt-BR');
+  const rows = [];
+  let totalACobrar = 0, totalFrigobar = 0;
+  days.forEach(day => {
+    const doDia = reservations.filter(r => (sameDay(r.checkin, day) || sameDay(r.checkout, day)) &&
+      (showCancelled || !norm(r.status).includes('cancel')));
+    doDia.forEach(r => {
+      const key = resKey(r);
+      const fb = frigobarTotal(key);
+      const tipo = sameDay(r.checkin, day) ? 'Entrada' : 'Saída';
+      if(tipo === 'Saída'){ totalFrigobar += fb; if(r.platform === 'Próprio') totalACobrar += (r.saldo + fb); }
+      rows.push('<tr>' +
+        '<td>' + day.toLocaleDateString('pt-BR') + '</td>' +
+        '<td>' + tipo + '</td>' +
+        '<td>' + (r.acomodacao || r.unidade || '') + '</td>' +
+        '<td>' + (r.nome || '') + '</td>' +
+        '<td>' + (r.platform || '') + '</td>' +
+        '<td>' + fmtMoney(r.saldo||0) + '</td>' +
+        '<td>' + (tipo === 'Saída' ? fmtMoney(fb) : '-') + '</td>' +
+      '</tr>');
+    });
+  });
+  const html = printHeaderHtml('Reservas do período: ' + periodo) +
+    '<table class="print-table"><thead><tr><th>Data</th><th>Tipo</th><th>Cabana</th><th>Hóspede</th><th>Plataforma</th><th>Saldo</th><th>Frigobar</th></tr></thead>' +
+    '<tbody>' + (rows.join('') || '<tr><td colspan="7">Nenhuma reserva no período.</td></tr>') + '</tbody></table>' +
+    '<div class="print-total">A cobrar nas saídas (saldo + frigobar): ' + fmtMoney(totalACobrar) + ' — Frigobar cobrado: ' + fmtMoney(totalFrigobar) + '</div>';
+  printContent(html, 'landscape');
+}
+function imprimirCardapio(){
+  const rows = productCatalog.map(p => '<tr><td>' + p.nome + '</td><td>' + fmtMoney(p.preco) + '</td></tr>').join('');
+  const html = printHeaderHtml('Cardápio do Frigobar') +
+    '<table class="print-table"><thead><tr><th>Item</th><th>Preço</th></tr></thead>' +
+    '<tbody>' + (rows || '<tr><td colspan="2">Nenhum produto cadastrado.</td></tr>') + '</tbody></table>';
+  printContent(html, 'portrait');
+}
+function imprimirFaturaFrigobar(){
+  if(!currentDetailKey){ alert('Selecione uma reserva primeiro.'); return; }
+  const res = reservations.find(r => resKey(r) === currentDetailKey);
+  const sel = document.getElementById('detailsResSelect');
+  const label = sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : currentDetailKey;
+  const rows = currentDetailFbItems.map(it => '<tr>' +
+    '<td>' + it.desc + '</td><td>' + it.qtd + '</td><td>' + fmtMoney(it.valor) + '</td><td>' + fmtMoney(it.qtd*it.valor) + '</td>' +
+  '</tr>').join('');
+  const totalFrigobar = currentDetailFbItems.reduce((s,it) => s + it.qtd*it.valor, 0);
+  const saldo = res ? (res.saldo||0) : 0;
+  const totalGeral = saldo + totalFrigobar;
+  const html = printHeaderHtml('Fatura de Consumo — Fechamento') +
+    '<p><strong>Hóspede/reserva:</strong> ' + label + '</p>' +
+    '<table class="print-table"><thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Subtotal</th></tr></thead>' +
+    '<tbody>' + (rows || '<tr><td colspan="4">Nenhum consumo lançado.</td></tr>') + '</tbody></table>' +
+    '<div class="print-total">Frigobar: ' + fmtMoney(totalFrigobar) + '<br>Saldo da reserva: ' + fmtMoney(saldo) + '<br><strong>Total a pagar: ' + fmtMoney(totalGeral) + '</strong></div>';
+  printContent(html, 'portrait');
 }
 
 updateAdminUI();

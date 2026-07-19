@@ -11,6 +11,7 @@
 var SHEET_ESTOQUE = 'Estoque';
 var SHEET_MOVIMENTOS = 'Movimentos';
 var SHEET_OBSERVACOES = 'Observacoes';
+var SHEET_PRODUTOS = 'Produtos';
 var DEFAULT_MINIMO = 2;
 
 function getSheet_(name){
@@ -21,6 +22,7 @@ function getSheet_(name){
     if(name === SHEET_ESTOQUE) sh.appendRow(['Cabana','Item','Estoque','Minimo']);
     if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Cabana','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel']);
     if(name === SHEET_OBSERVACOES) sh.appendRow(['ReservaChave','ReservaLabel','Observacao','AtualizadoEm']);
+    if(name === SHEET_PRODUTOS) sh.appendRow(['Nome','Preco']);
   }
   return sh;
 }
@@ -40,6 +42,8 @@ function doGet(e){
     result = getMovimentosPorReserva_(e.parameter.reserva || '');
   } else if(action === 'observacoes'){
     result = getObservacoes_();
+  } else if(action === 'produtos'){
+    result = getProdutos_();
   } else {
     result = {error:'ação inválida'};
   }
@@ -57,6 +61,10 @@ function doPost(e){
     result = removerMovimento_(body.id);
   } else if(body.action === 'salvarObs'){
     result = salvarObs_(body);
+  } else if(body.action === 'salvarProduto'){
+    result = salvarProduto_(body);
+  } else if(body.action === 'removerProduto'){
+    result = removerProduto_(body.nome);
   } else {
     result = {ok:false, error:'ação inválida'};
   }
@@ -177,5 +185,45 @@ function salvarObs_(body){
     sh.getRange(row,3).setValue(body.obs||'');
     sh.getRange(row,4).setValue(new Date());
   }
+  return {ok:true};
+}
+
+function getProdutos_(){
+  var sh = getSheet_(SHEET_PRODUTOS);
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for(var i=1;i<data.length;i++){
+    if(!data[i][0]) continue;
+    out.push({nome:data[i][0], preco:Number(data[i][1])||0});
+  }
+  return out;
+}
+
+function findProdutoRow_(sh, nome){
+  var data = sh.getDataRange().getValues();
+  for(var i=1;i<data.length;i++){
+    if(String(data[i][0]).trim().toLowerCase() === String(nome).trim().toLowerCase()) return i+1;
+  }
+  return -1;
+}
+
+function salvarProduto_(body){
+  var sh = getSheet_(SHEET_PRODUTOS);
+  var nomeOriginal = body.nomeOriginal || body.nome;
+  var row = findProdutoRow_(sh, nomeOriginal);
+  if(row === -1){
+    sh.appendRow([body.nome, Number(body.preco)||0]);
+  } else {
+    sh.getRange(row,1).setValue(body.nome);
+    sh.getRange(row,2).setValue(Number(body.preco)||0);
+  }
+  return {ok:true};
+}
+
+function removerProduto_(nome){
+  var sh = getSheet_(SHEET_PRODUTOS);
+  var row = findProdutoRow_(sh, nome);
+  if(row === -1) return {ok:false, error:'produto não encontrado'};
+  sh.deleteRow(row);
   return {ok:true};
 }
