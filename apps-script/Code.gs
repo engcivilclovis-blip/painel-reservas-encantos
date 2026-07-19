@@ -12,6 +12,8 @@ var SHEET_ESTOQUE = 'Estoque';
 var SHEET_MOVIMENTOS = 'Movimentos';
 var SHEET_OBSERVACOES = 'Observacoes';
 var SHEET_PRODUTOS = 'Produtos';
+var SHEET_FAXINAS = 'Faxinas';
+var SHEET_CONFIG = 'Config';
 var DEFAULT_MINIMO = 2;
 
 function getSheet_(name){
@@ -23,6 +25,8 @@ function getSheet_(name){
     if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Cabana','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel']);
     if(name === SHEET_OBSERVACOES) sh.appendRow(['ReservaChave','ReservaLabel','Observacao','AtualizadoEm']);
     if(name === SHEET_PRODUTOS) sh.appendRow(['Nome','Preco']);
+    if(name === SHEET_FAXINAS) sh.appendRow(['ReservaChave','ReservaLabel','Cabana','DataExecucao','ExecutadoPor','Valor','Pago','DataPagamento']);
+    if(name === SHEET_CONFIG) sh.appendRow(['Chave','Valor']);
   }
   return sh;
 }
@@ -44,6 +48,10 @@ function doGet(e){
     result = getObservacoes_();
   } else if(action === 'produtos'){
     result = getProdutos_();
+  } else if(action === 'faxinas'){
+    result = getFaxinas_();
+  } else if(action === 'config'){
+    result = getConfig_();
   } else {
     result = {error:'ação inválida'};
   }
@@ -65,6 +73,10 @@ function doPost(e){
     result = salvarProduto_(body);
   } else if(body.action === 'removerProduto'){
     result = removerProduto_(body.nome);
+  } else if(body.action === 'salvarFaxina'){
+    result = salvarFaxina_(body);
+  } else if(body.action === 'salvarConfig'){
+    result = salvarConfig_(body);
   } else {
     result = {ok:false, error:'ação inválida'};
   }
@@ -225,5 +237,70 @@ function removerProduto_(nome){
   var row = findProdutoRow_(sh, nome);
   if(row === -1) return {ok:false, error:'produto não encontrado'};
   sh.deleteRow(row);
+  return {ok:true};
+}
+
+function getFaxinas_(){
+  var sh = getSheet_(SHEET_FAXINAS);
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for(var i=1;i<data.length;i++){
+    if(!data[i][0]) continue;
+    out.push({
+      reservaChave: data[i][0], reservaLabel: data[i][1], cabana: data[i][2],
+      dataExecucao: data[i][3], executadoPor: data[i][4],
+      valor: Number(data[i][5])||0, pago: data[i][6] === true || data[i][6] === 'TRUE' || data[i][6] === 'true',
+      dataPagamento: data[i][7]
+    });
+  }
+  return out;
+}
+
+function findFaxinaRow_(sh, chave){
+  var data = sh.getDataRange().getValues();
+  for(var i=1;i<data.length;i++){
+    if(String(data[i][0]) === String(chave)) return i+1;
+  }
+  return -1;
+}
+
+function salvarFaxina_(body){
+  var sh = getSheet_(SHEET_FAXINAS);
+  var row = findFaxinaRow_(sh, body.reservaChave);
+  var linha = [body.reservaChave, body.reservaLabel||'', body.cabana||'', body.dataExecucao||'', body.executadoPor||'', Number(body.valor)||0, !!body.pago, body.dataPagamento||''];
+  if(row === -1){
+    sh.appendRow(linha);
+  } else {
+    sh.getRange(row,1,1,linha.length).setValues([linha]);
+  }
+  return {ok:true};
+}
+
+function getConfig_(){
+  var sh = getSheet_(SHEET_CONFIG);
+  var data = sh.getDataRange().getValues();
+  var out = {};
+  for(var i=1;i<data.length;i++){
+    if(data[i][0]) out[data[i][0]] = data[i][1];
+  }
+  return out;
+}
+
+function findConfigRow_(sh, chave){
+  var data = sh.getDataRange().getValues();
+  for(var i=1;i<data.length;i++){
+    if(String(data[i][0]) === String(chave)) return i+1;
+  }
+  return -1;
+}
+
+function salvarConfig_(body){
+  var sh = getSheet_(SHEET_CONFIG);
+  var row = findConfigRow_(sh, body.chave);
+  if(row === -1){
+    sh.appendRow([body.chave, body.valor]);
+  } else {
+    sh.getRange(row,2).setValue(body.valor);
+  }
   return {ok:true};
 }

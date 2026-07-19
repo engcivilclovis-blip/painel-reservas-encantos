@@ -37,10 +37,21 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
   - Lançar e remover itens de consumo de frigobar por reserva.
   - Registrar reabastecimento de estoque (botão "📦 Estoque de frigobar", só aparece com a sincronização configurada).
   - Cadastrar, editar e remover produtos do catálogo de frigobar (botão "🧾 Produtos do frigobar").
+  - Ver e controlar o pagamento das faxinas (botão "🧹 Faxinas" — veja seção abaixo).
+- **Faxineira**: clicando em "🧹 Entrar como faxineira" e digitando o código próprio, libera uma visão sem nenhum dado financeiro (sem saldo da reserva, sem "a cobrar"), mas com:
+  - Ver todas as entradas e saídas normalmente.
+  - Lançar consumo de frigobar por reserva e gerar a fatura de fechamento (mostra só o total do frigobar a cobrar, sem o saldo da reserva).
+  - Marcar a faxina de uma reserva como executada (dentro de "Ver detalhes da reserva").
+
+## Controle de faxinas
+
+- Toda reserva com data de check-out aparece com o badge **"🧹 Faxina pendente"** até alguém marcar como executada. Dentro de "Ver detalhes de uma reserva", o botão **"Marcar faxina como executada"** (visível para administrador e faxineira) registra a data e, opcionalmente, quem executou.
+- O botão **"🧹 Faxinas"** (só para administrador) abre um painel com todas as faxinas: cabana, hóspede, check-out, status, data de execução, valor e se já foi paga. Mostra o **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas) e permite marcar cada uma como paga (registra a data do pagamento).
+- O valor padrão por faxina é configurável no topo do painel "🧹 Faxinas" e vale para as próximas faxinas marcadas como executadas.
 
 ### ⚠️ Importante sobre o código de administrador
 
-O código fica definido na constante `ADMIN_PIN` dentro do `<script>` de `index.html` (procure por `const ADMIN_PIN = ...`). **Troque esse valor antes de publicar.**
+O código fica definido na constante `ADMIN_PIN` dentro do `<script>` de `index.html` (procure por `const ADMIN_PIN = ...`). O código da faxineira fica na constante `FAXINEIRA_PIN`, logo abaixo. **Troque os dois valores antes de publicar.**
 
 Isso **não é uma senha de verdade** — como o site é público e estático, qualquer pessoa que abrir "Ver código-fonte da página" no navegador consegue ler esse valor. Serve apenas para evitar que alguém sem intenção de editar clique e mexa por engano nos dados. Não use para proteger informações sensíveis.
 
@@ -71,12 +82,14 @@ Por padrão (`FRIGOBAR_API_URL` vazio em `index.html`), observações e frigobar
 
 ### O que fica registrado na planilha
 
-O script cria quatro abas sozinho na primeira vez que for usado:
+O script cria seis abas sozinho na primeira vez que for usado:
 
 - **Estoque**: uma linha por cabana/container + item (Água, Cerveja, etc.) com a quantidade atual e o mínimo antes de disparar o aviso "⚠️ repor". Você pode editar essas colunas diretamente na planilha a qualquer momento (ex.: corrigir uma contagem, ou mudar o mínimo de um item).
 - **Movimentos**: histórico de tudo — cada consumo lançado numa reserva (saída de estoque) e cada reabastecimento registrado pelo administrador (entrada de estoque), com data/hora.
 - **Observacoes**: uma linha por reserva com a observação atual e quando foi atualizada pela última vez.
 - **Produtos**: uma linha por produto do catálogo de frigobar (nome e preço), editável pelo administrador direto no painel (botão "🧾 Produtos do frigobar") ou diretamente na planilha.
+- **Faxinas**: uma linha por reserva com faxina marcada como executada (cabana, data de execução, quem executou, valor, se já foi paga e a data do pagamento).
+- **Config**: pares chave/valor genéricos; hoje guarda só `valorFaxina` (valor padrão pago por faxina), editável no painel "🧹 Faxinas".
 
 ### Sobre o código-fonte da API (`apps-script/Code.gs`)
 

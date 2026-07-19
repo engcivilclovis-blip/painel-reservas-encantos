@@ -184,8 +184,10 @@
   <div class="toolbar-row">
     <button class="btn-details" onclick="openDetailsModal()">📋 Ver detalhes de uma reserva (observações / frigobar)</button>
     <button class="btn-admin" id="adminToggleBtn" onclick="toggleAdmin()">🔒 Entrar como administrador</button>
+    <button class="btn-admin" id="faxineiraToggleBtn" onclick="toggleFaxineira()">🧹 Entrar como faxineira</button>
     <button class="btn-details" id="stockBtn" onclick="openStockModal()" style="display:none;">📦 Estoque de frigobar</button>
     <button class="btn-details" id="productsBtn" onclick="openProductsModal()" style="display:none;">🧾 Produtos do frigobar</button>
+    <button class="btn-details" id="faxinasBtn" onclick="openFaxinasModal()" style="display:none;">🧹 Faxinas</button>
   </div>
 </div>
 
@@ -234,6 +236,21 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="faxineiraModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>Acesso da Faxineira</h2>
+      <button class="secondary" onclick="closeFaxineiraModal()">Fechar</button>
+    </div>
+    <label for="faxineiraPinInput">Código da faxineira</label>
+    <form onsubmit="event.preventDefault(); submitFaxineiraPin();">
+      <input type="password" id="faxineiraPinInput" autocomplete="off" placeholder="Digite o código">
+      <div class="admin-error" id="faxineiraError">Código incorreto. Tente novamente.</div>
+      <button type="submit">Entrar</button>
+    </form>
+  </div>
+</div>
+
 <div class="modal-overlay" id="stockModal" style="display:none;">
   <div class="modal">
     <div class="modal-head">
@@ -271,6 +288,22 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="faxinasModal" style="display:none;">
+  <div class="modal" style="max-width:820px;">
+    <div class="modal-head">
+      <h2>Controle de Faxinas</h2>
+      <button class="secondary" onclick="closeFaxinasModal()">Fechar</button>
+    </div>
+    <div class="frigobar-add">
+      <label class="chk" style="gap:8px;">Valor padrão por faxina (R$):
+        <input type="number" id="valorFaxinaPadraoInput" step="0.01" style="width:100px" onchange="salvarValorFaxinaPadrao(this.value)">
+      </label>
+    </div>
+    <div id="faxinasSaldoBox" style="margin:8px 0;font-size:14px;"></div>
+    <div id="faxinasList"></div>
+  </div>
+</div>
+
 <div id="printArea"></div>
 
 <script>
@@ -279,6 +312,12 @@
 // isto NÃO é uma senha segura, é apenas um bloqueio para evitar edições acidentais).
 const ADMIN_PIN = 'encantos2026';
 let isAdmin = false;
+
+// Código de acesso da faxineira. Troque este valor antes de publicar o painel.
+// Dá acesso a lançar consumo de frigobar e marcar faxinas como executadas,
+// sem mostrar saldos/valores da reserva.
+const FAXINEIRA_PIN = 'faxina2026';
+let isFaxineira = false;
 
 // Cole aqui a URL do Web App do Google Apps Script (termina em /exec) depois de publicar
 // (veja o passo a passo no README.md). Enquanto ficar vazia, o consumo de frigobar é salvo
@@ -393,10 +432,27 @@ function reloadProdutos(){
     populateCatalogSelects();
   }).catch(() => {});
 }
+function apiGetFaxinas(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=faxinas').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function apiSalvarFaxina(payload){
+  return apiPost(Object.assign({action:'salvarFaxina'}, payload));
+}
+function apiGetConfig(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=config').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function apiSalvarConfig(chave, valor){
+  return apiPost({action:'salvarConfig', chave:chave, valor:valor});
+}
 
 let estoqueCache = [];
 let frigobarTotalsCache = {};
 let obsCache = {};
+let faxinasCache = {};
+let valorFaxinaPadrao = 80;
+let faxinaDetailsLocal = {};
+try { faxinaDetailsLocal = JSON.parse(localStorage.getItem('painelFaxinas') || '{}'); } catch(e){ faxinaDetailsLocal = {}; }
+function saveFaxinasLocal(){ localStorage.setItem('painelFaxinas', JSON.stringify(faxinaDetailsLocal)); }
 let currentDetailFbItems = [];
 let obsSaveTimer = null;
 let obsSavePending = null;
@@ -418,14 +474,22 @@ function flushObsSave(){
 
 function refreshFrigobarCache(){
   if(!apiAvailable()) return;
-  Promise.all([apiGetEstoque(), apiGetTotais(), apiGetObservacoes(), apiGetProdutos()])
-    .then(([estoque, totais, obs, produtos]) => {
+  Promise.all([apiGetEstoque(), apiGetTotais(), apiGetObservacoes(), apiGetProdutos(), apiGetFaxinas(), apiGetConfig()])
+    .then(([estoque, totais, obs, produtos, faxinas, config]) => {
       estoqueCache = estoque;
       frigobarTotalsCache = totais;
       obsCache = obs;
       if(produtos && produtos.length) productCatalog = produtos;
+      if(Array.isArray(faxinas)){
+        faxinasCache = {};
+        faxinas.forEach(f => { faxinasCache[f.reservaChave] = f; });
+      }
+      if(config && typeof config === 'object' && !config.error && config.valorFaxina !== undefined){
+        valorFaxinaPadrao = Number(config.valorFaxina) || 80;
+      }
       renderStock();
       render();
+      if(document.getElementById('faxinasModal').style.display === 'flex') renderFaxinasList();
     })
     .catch(() => { /* mantém o último estado conhecido se a rede falhar */ });
 }
@@ -552,6 +616,74 @@ function removerProdutoUI(nomeEncoded){
   }
 }
 
+// ---------- Controle de faxinas (pagamento pelo administrador) ----------
+function openFaxinasModal(){
+  document.getElementById('valorFaxinaPadraoInput').value = valorFaxinaPadrao;
+  document.getElementById('faxinasModal').style.display = 'flex';
+  renderFaxinasList();
+}
+function closeFaxinasModal(){
+  document.getElementById('faxinasModal').style.display = 'none';
+}
+function todasFaxinas(){
+  const saidas = reservations.filter(r => r.checkout && !norm(r.status).includes('cancel'));
+  return saidas.map(r => {
+    const key = resKey(r);
+    const fx = faxinaStatus(key) || {};
+    return {
+      key: key,
+      cabana: cabanaFrigobar(r),
+      hospede: r.nome || '(sem nome)',
+      checkout: r.checkout,
+      dataExecucao: fx.dataExecucao || '',
+      executadoPor: fx.executadoPor || '',
+      valor: fx.dataExecucao ? (Number(fx.valor) || 0) : 0,
+      pago: !!fx.pago,
+      dataPagamento: fx.dataPagamento || ''
+    };
+  }).sort((a,b) => (b.checkout||0) - (a.checkout||0));
+}
+function renderFaxinasList(){
+  const box = document.getElementById('faxinasList');
+  const todas = todasFaxinas();
+  const saldoAPagar = todas.filter(f => f.dataExecucao && !f.pago).reduce((s,f) => s + f.valor, 0);
+  document.getElementById('faxinasSaldoBox').innerHTML = '<strong>Saldo a pagar (faxinas concluídas e não pagas): ' + fmtMoney(saldoAPagar) + '</strong>';
+  if(!todas.length){ box.innerHTML = '<p class="empty">Nenhuma reserva com saída registrada.</p>'; return; }
+  box.innerHTML = '<table class="fb-table"><thead><tr><th>Cabana</th><th>Hóspede</th><th>Check-out</th><th>Status</th><th>Execução</th><th>Valor</th><th>Pago</th><th></th></tr></thead><tbody>' +
+    todas.map(f => '<tr>' +
+      '<td>' + f.cabana + '</td>' +
+      '<td>' + f.hospede + '</td>' +
+      '<td>' + (f.checkout ? f.checkout.toLocaleDateString('pt-BR') : '?') + '</td>' +
+      '<td>' + (f.dataExecucao ? '✅ concluída' : '⏳ pendente') + '</td>' +
+      '<td>' + (f.dataExecucao || '-') + (f.executadoPor ? ' (' + f.executadoPor + ')' : '') + '</td>' +
+      '<td>' + (f.dataExecucao ? fmtMoney(f.valor) : '-') + '</td>' +
+      '<td>' + (f.dataExecucao ? (f.pago ? 'Sim (' + f.dataPagamento + ')' : 'Não') : '-') + '</td>' +
+      '<td>' + (f.dataExecucao && !f.pago ? '<button class="mini secondary" onclick="marcarFaxinaPaga(\'' + f.key + '\')">Marcar pago</button>' : '') + '</td>' +
+    '</tr>').join('') +
+    '</tbody></table>';
+}
+function marcarFaxinaPaga(key){
+  const fx = faxinaStatus(key);
+  if(!fx || !fx.dataExecucao){ alert('Esta faxina ainda não foi executada.'); return; }
+  const registro = Object.assign({}, fx, {reservaChave:key, pago:true, dataPagamento:new Date().toLocaleDateString('pt-BR')});
+  if(apiAvailable()){
+    apiSalvarFaxina(registro)
+      .then(() => { refreshFrigobarCache(); })
+      .catch(() => alert('Não foi possível registrar agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    faxinaDetailsLocal[key] = registro;
+    saveFaxinasLocal();
+    renderFaxinasList();
+  }
+}
+function salvarValorFaxinaPadrao(val){
+  const v = parseFloat(val) || 0;
+  valorFaxinaPadrao = v;
+  if(apiAvailable()){
+    apiSalvarConfig('valorFaxina', v).catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
+  }
+}
+
 let reservations = [];
 let weekStart = mondayOf(new Date());
 const LS_CSV_KEY = 'painelUltimoCSV';
@@ -584,6 +716,7 @@ function submitAdminPin(){
   const pin = document.getElementById('adminPinInput').value;
   if(pin.trim() === ADMIN_PIN){
     isAdmin = true;
+    isFaxineira = false;
     closeAdminModal();
     updateAdminUI();
     if(currentDetailKey) renderDetailsBody();
@@ -594,6 +727,40 @@ function submitAdminPin(){
     document.getElementById('adminPinInput').focus();
   }
 }
+function toggleFaxineira(){
+  if(isFaxineira){
+    isFaxineira = false;
+    updateAdminUI();
+    if(currentDetailKey) renderDetailsBody();
+    render();
+  } else {
+    openFaxineiraModal();
+  }
+}
+function openFaxineiraModal(){
+  document.getElementById('faxineiraError').classList.remove('show');
+  document.getElementById('faxineiraPinInput').value = '';
+  document.getElementById('faxineiraModal').style.display = 'flex';
+  document.getElementById('faxineiraPinInput').focus();
+}
+function closeFaxineiraModal(){
+  document.getElementById('faxineiraModal').style.display = 'none';
+}
+function submitFaxineiraPin(){
+  const pin = document.getElementById('faxineiraPinInput').value;
+  if(pin.trim() === FAXINEIRA_PIN){
+    isFaxineira = true;
+    isAdmin = false;
+    closeFaxineiraModal();
+    updateAdminUI();
+    if(currentDetailKey) renderDetailsBody();
+    render();
+  } else {
+    document.getElementById('faxineiraError').classList.add('show');
+    document.getElementById('faxineiraPinInput').value = '';
+    document.getElementById('faxineiraPinInput').focus();
+  }
+}
 function updateAdminUI(){
   document.getElementById('importSection').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('viewerNotice').style.display = isAdmin ? 'none' : 'flex';
@@ -602,7 +769,12 @@ function updateAdminUI(){
   btn.classList.toggle('is-active', isAdmin);
   document.getElementById('stockBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('productsBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('faxinasBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  const fbtn = document.getElementById('faxineiraToggleBtn');
+  fbtn.textContent = isFaxineira ? '🧹 Faxineira (clique para sair)' : '🧹 Entrar como faxineira';
+  fbtn.classList.toggle('is-active', isFaxineira);
 }
+function hideFinance(){ return isFaxineira && !isAdmin; }
 
 // ---------- Utilitários ----------
 function norm(s){
@@ -867,6 +1039,31 @@ function frigobarTotal(key){
   if(!entry || !entry.items) return 0;
   return entry.items.reduce((s,it) => s + it.qtd*it.valor, 0);
 }
+function faxinaStatus(key){
+  if(apiAvailable()) return faxinasCache[key] || null;
+  return faxinaDetailsLocal[key] || null;
+}
+function marcarFaxinaExecutada(key, labelEncoded, cabanaEncoded){
+  const label = labelEncoded ? decodeURIComponent(labelEncoded) : '';
+  const cabana = cabanaEncoded ? decodeURIComponent(cabanaEncoded) : '';
+  const executadoPor = prompt('Executado por (opcional):', '') || '';
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const registro = {
+    reservaChave: key, reservaLabel: label || key, cabana: cabana || '',
+    dataExecucao: hoje, executadoPor: executadoPor,
+    valor: valorFaxinaPadrao, pago: false, dataPagamento: ''
+  };
+  if(apiAvailable()){
+    apiSalvarFaxina(registro)
+      .then(() => { refreshFrigobarCache(); if(currentDetailKey) renderDetailsBody(); })
+      .catch(() => alert('Não foi possível registrar agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    faxinaDetailsLocal[key] = registro;
+    saveFaxinasLocal();
+    render();
+    if(currentDetailKey) renderDetailsBody();
+  }
+}
 function openDetailsModal(key){
   document.getElementById('detailsModal').style.display = 'flex';
   populateDetailsSelect();
@@ -905,7 +1102,8 @@ function renderDetailsBody(){
   if(!currentDetailKey){ box.innerHTML = '<p class="empty">Selecione uma reserva acima.</p>'; return; }
   const localDetail = getDetail(currentDetailKey);
   const obsValue = apiAvailable() ? (obsCache[currentDetailKey] || '') : (localDetail.obs || '');
-  const frigobarForm = isAdmin ? `
+  const podeLancarFrigobar = isAdmin || isFaxineira;
+  const frigobarForm = podeLancarFrigobar ? `
     <div class="frigobar-add">
       <select id="fbItemPreset" onchange="applyFbPreset(this.value)">${catalogOptionsHtml()}</select>
       <input type="text" id="fbDesc" placeholder="Descrição">
@@ -913,10 +1111,25 @@ function renderDetailsBody(){
       <input type="number" id="fbValor" placeholder="Valor unit. (R$)" step="0.01" style="width:110px">
       <button onclick="addFrigobarItem()">Adicionar</button>
     </div>
-  ` : `<p class="empty">Somente administradores podem lançar consumo de frigobar. Peça o código de administrador a quem gerencia o painel.</p>`;
+  ` : `<p class="empty">Somente administradores ou a faxineira podem lançar consumo de frigobar.</p>`;
   const syncNote = apiAvailable()
     ? '<span class="sync-note">(sincronizado entre todos os dispositivos)</span>'
     : '<span class="sync-note">(salvo apenas neste navegador — veja o README para sincronizar)</span>';
+  const res = reservations.find(r => resKey(r) === currentDetailKey);
+  const sel0 = document.getElementById('detailsResSelect');
+  const label0 = sel0 && sel0.selectedOptions[0] ? sel0.selectedOptions[0].textContent : currentDetailKey;
+  const cabana0 = res ? cabanaFrigobar(res) : '';
+  const fx = faxinaStatus(currentDetailKey);
+  const faxinaSection = res ? `
+    <hr>
+    <label>🧹 Faxina ${syncNote}</label>
+    <p style="margin:4px 0;">
+      ${fx && fx.dataExecucao
+        ? 'Executada em <strong>' + fx.dataExecucao + '</strong>' + (fx.executadoPor ? ' por ' + fx.executadoPor : '') + (isAdmin ? ' · valor: ' + fmtMoney(Number(fx.valor)||0) + (fx.pago ? ' (pago)' : ' (pendente de pagamento)') : '')
+        : '<span class="empty" style="padding:0;">Faxina ainda pendente.</span>'}
+    </p>
+    ${(isAdmin || isFaxineira) ? '<button class="secondary mini" onclick="marcarFaxinaExecutada(\'' + currentDetailKey + '\', \'' + encodeURIComponent(label0) + '\', \'' + encodeURIComponent(cabana0) + '\')">Marcar faxina como executada</button>' : ''}
+  ` : '';
   box.innerHTML = `
     <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...) ${syncNote}</label>
     <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${obsValue}</textarea>
@@ -924,6 +1137,7 @@ function renderDetailsBody(){
     <label>Consumo de frigobar ${syncNote} <button class="mini secondary" onclick="imprimirFaturaFrigobar()">🖨️ Imprimir fatura</button></label>
     ${frigobarForm}
     <div id="fbTableWrap"><p class="empty">Carregando…</p></div>
+    ${faxinaSection}
   `;
   document.getElementById('obsText').addEventListener('input', function(){
     const val = this.value;
@@ -981,7 +1195,7 @@ function clearFbForm(){
   document.getElementById('fbItemPreset').value = '';
 }
 function addFrigobarItem(){
-  if(!isAdmin){ alert('Somente administradores podem editar o frigobar.'); return; }
+  if(!isAdmin && !isFaxineira){ alert('Somente administradores ou a faxineira podem lançar consumo de frigobar.'); return; }
   if(!currentDetailKey){ alert('Selecione uma reserva primeiro.'); return; }
   const desc = document.getElementById('fbDesc').value.trim();
   const valor = parseFloat(document.getElementById('fbValor').value);
@@ -1047,14 +1261,19 @@ function makeCard(res, isCheckout){
   const hasObs = obsText.trim() !== '';
   const pay = paymentBadge(res, key, isCheckout);
   const cabana = res.acomodacao || res.unidade || '(sem cabana)';
+  const fx = isCheckout ? faxinaStatus(key) : null;
+  const fxBadge = isCheckout
+    ? (fx && fx.dataExecucao ? `<span class="badge b-ok">🧹 Faxina concluída (${fx.dataExecucao})</span>` : `<span class="badge b-warn">🧹 Faxina pendente</span>`)
+    : '';
   return `<div class="card p-${pClass}" data-detail-key="${key}" title="Clique para ver observações e frigobar">
     <div class="cab">${cabana}</div>
     <div class="meta">${res.nome ? res.nome + ' · ' : ''}${guests} hóspede(s)</div>
     <div class="badges">
       <span class="badge b-${pClass}">${res.platform}</span>
-      <span class="badge ${pay.cls}">${pay.text}</span>
+      ${hideFinance() ? '' : `<span class="badge ${pay.cls}">${pay.text}</span>`}
       ${(fbTotal>0.009 && !isCheckout) ? `<span class="badge b-frigobar">Frigobar: ${fmtMoney(fbTotal)}</span>` : ''}
       ${hasObs ? `<span class="badge b-obs">📝 Observação</span>` : ''}
+      ${fxBadge}
     </div>
     <div class="card-hint">Ver detalhes ▸</div>
   </div>`;
@@ -1109,8 +1328,9 @@ function render(){
   document.getElementById('summaryBar').innerHTML = `
     <span>Entradas no período: <b>${weekEntradas}</b></span>
     <span>Saídas no período: <b>${weekSaidas}</b></span>
+    ${hideFinance() ? '' : `
     <span>A cobrar nas saídas (saldo + frigobar): <b>${fmtMoney(weekACobrar)}</b></span>
-    <span>Frigobar cobrado nas saídas: <b>${fmtMoney(weekFrigobar)}</b></span>
+    <span>Frigobar cobrado nas saídas: <b>${fmtMoney(weekFrigobar)}</b></span>`}
   `;
 }
 
@@ -1181,11 +1401,14 @@ function imprimirFaturaFrigobar(){
   const totalFrigobar = currentDetailFbItems.reduce((s,it) => s + it.qtd*it.valor, 0);
   const saldo = res ? (res.saldo||0) : 0;
   const totalGeral = saldo + totalFrigobar;
+  const rodape = hideFinance()
+    ? '<strong>Total a cobrar (frigobar): ' + fmtMoney(totalFrigobar) + '</strong>'
+    : 'Frigobar: ' + fmtMoney(totalFrigobar) + '<br>Saldo da reserva: ' + fmtMoney(saldo) + '<br><strong>Total a pagar: ' + fmtMoney(totalGeral) + '</strong>';
   const html = printHeaderHtml('Fatura de Consumo — Fechamento') +
     '<p><strong>Hóspede/reserva:</strong> ' + label + '</p>' +
     '<table class="print-table"><thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Subtotal</th></tr></thead>' +
     '<tbody>' + (rows || '<tr><td colspan="4">Nenhum consumo lançado.</td></tr>') + '</tbody></table>' +
-    '<div class="print-total">Frigobar: ' + fmtMoney(totalFrigobar) + '<br>Saldo da reserva: ' + fmtMoney(saldo) + '<br><strong>Total a pagar: ' + fmtMoney(totalGeral) + '</strong></div>';
+    '<div class="print-total">' + rodape + '</div>';
   printContent(html, 'portrait');
 }
 
