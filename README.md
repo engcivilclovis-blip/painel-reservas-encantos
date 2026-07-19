@@ -23,6 +23,12 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 - Dentro de **"Ver detalhes de uma reserva"**, o botão **"🖨️ Imprimir fatura"** (ao lado de "Consumo de frigobar") gera a fatura de fechamento daquela reserva: itens consumidos, saldo da reserva e total a pagar — para entregar ao hóspede na saída.
 - Em todos os casos o conteúdo impresso é gerado dinamicamente e enviado direto para o diálogo de impressão do navegador; não é necessária nenhuma biblioteca externa de PDF.
 
+## Filtro de acomodações exibidas
+
+- O botão **"🏠 Acomodações"** abre uma lista com as 5 unidades (Cabana Verde, Cabana Rosa, Cabana Azul, Container A, Container B), todas marcadas por padrão. Desmarque as que não quiser ver — por exemplo, deixe marcado só "Container A" para analisar apenas aquele container.
+- Os botões **"Marcar todos"** / **"Desmarcar todos"** agilizam quando você quer olhar só uma ou duas unidades.
+- O filtro afeta o calendário e também o **"🖨️ Imprimir período (PDF)"**, então o relatório impresso mostra só as acomodações selecionadas.
+
 ## Papéis de acesso (administrador x visualização)
 
 - **Sem login**: qualquer pessoa que abrir o link vê o calendário completo, navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais) — sincronizadas entre todos os dispositivos quando a API estiver configurada (veja abaixo). Também vê a barra de estoque de frigobar (se a sincronização estiver configurada).

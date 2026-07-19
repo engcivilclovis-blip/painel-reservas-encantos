@@ -35,6 +35,11 @@
   label.chk{font-size:13px;display:flex;align-items:center;gap:5px;}
   .status{font-size:13px;color:#5a5049;}
   .week-nav{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;color:var(--brand-charcoal);}
+  .acom-filter{position:relative;display:inline-block;}
+  .acom-filter-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;background:#fffdfb;border:1px solid var(--border);border-radius:8px;padding:10px 12px;box-shadow:0 4px 14px rgba(43,43,42,0.18);z-index:20;min-width:190px;}
+  .acom-filter-panel.open{display:block;}
+  .acom-filter-actions{display:flex;gap:6px;margin-bottom:8px;}
+  .acom-filter-list{display:flex;flex-direction:column;gap:4px;}
   .summary-bar{display:flex;gap:20px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#5a5049;}
   .summary-bar b{font-size:15px;color:var(--brand-charcoal);}
   .board{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;overflow-x:auto;}
@@ -155,6 +160,16 @@
     </div>
     <input type="date" id="jumpDate" onchange="jumpToDate(this.value)">
     <label class="chk"><input type="checkbox" id="showCancelled" onchange="render()"> Mostrar canceladas</label>
+    <div class="acom-filter">
+      <button class="secondary" onclick="toggleAcomFilterPanel()">🏠 Acomodações</button>
+      <div class="acom-filter-panel" id="acomFilterPanel">
+        <div class="acom-filter-actions">
+          <button class="mini secondary" onclick="setAllAcomodacoes(true)">Marcar todos</button>
+          <button class="mini secondary" onclick="setAllAcomodacoes(false)">Desmarcar todos</button>
+        </div>
+        <div class="acom-filter-list" id="acomFilterList"></div>
+      </div>
+    </div>
     <button class="secondary" onclick="initialLoad()">🔄 Atualizar dados</button>
     <span class="status" id="statusMsg">Nenhum dado carregado ainda.</span>
   </div>
@@ -286,6 +301,35 @@ let productCatalog = [
 ];
 // Cabanas/containers com frigobar próprio (estoque controlado por unidade).
 const CABANAS = ['CABANA VERDE','CABANA ROSA','CABANA AZUL','CONTAINER A','CONTAINER B'];
+
+// ---------- Filtro de acomodações exibidas no calendário ----------
+let selectedAcomodacoes = new Set(CABANAS); // todas marcadas por padrão
+function toggleAcomFilterPanel(){
+  document.getElementById('acomFilterPanel').classList.toggle('open');
+  renderAcomFilterList();
+}
+function renderAcomFilterList(){
+  const box = document.getElementById('acomFilterList');
+  box.innerHTML = CABANAS.map(c =>
+    '<label class="chk"><input type="checkbox" ' + (selectedAcomodacoes.has(c) ? 'checked' : '') +
+    ' onchange="toggleAcomodacao(\'' + c + '\', this.checked)"> ' + c + '</label>'
+  ).join('');
+}
+function toggleAcomodacao(cab, checked){
+  if(checked) selectedAcomodacoes.add(cab);
+  else selectedAcomodacoes.delete(cab);
+  render();
+}
+function setAllAcomodacoes(all){
+  if(all) CABANAS.forEach(c => selectedAcomodacoes.add(c));
+  else selectedAcomodacoes.clear();
+  renderAcomFilterList();
+  render();
+}
+document.addEventListener('click', function(e){
+  const wrap = document.querySelector('.acom-filter');
+  if(wrap && !wrap.contains(e.target)) document.getElementById('acomFilterPanel').classList.remove('open');
+});
 
 function catalogOptionsHtml(){
   return '<option value="">Item personalizado…</option>' + productCatalog.map(p =>
@@ -1034,9 +1078,9 @@ function render(){
     const dayName = DAY_NAMES[(day.getDay()+6)%7];
 
     const entradas = reservations.filter(r => sameDay(r.checkin, day) &&
-      (showCancelled || !norm(r.status).includes('cancel')));
+      (showCancelled || !norm(r.status).includes('cancel')) && selectedAcomodacoes.has(cabanaFrigobar(r)));
     const saidas = reservations.filter(r => sameDay(r.checkout, day) &&
-      (showCancelled || !norm(r.status).includes('cancel')));
+      (showCancelled || !norm(r.status).includes('cancel')) && selectedAcomodacoes.has(cabanaFrigobar(r)));
 
     weekEntradas += entradas.length;
     weekSaidas += saidas.length;
@@ -1096,7 +1140,7 @@ function imprimirSemana(){
   let totalACobrar = 0, totalFrigobar = 0;
   days.forEach(day => {
     const doDia = reservations.filter(r => (sameDay(r.checkin, day) || sameDay(r.checkout, day)) &&
-      (showCancelled || !norm(r.status).includes('cancel')));
+      (showCancelled || !norm(r.status).includes('cancel')) && selectedAcomodacoes.has(cabanaFrigobar(r)));
     doDia.forEach(r => {
       const key = resKey(r);
       const fb = frigobarTotal(key);
