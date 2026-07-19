@@ -29,34 +29,55 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 - Os botões **"Marcar todos"** / **"Desmarcar todos"** agilizam quando você quer olhar só uma ou duas unidades.
 - O filtro afeta o calendário e também o **"🖨️ Imprimir período (PDF)"**, então o relatório impresso mostra só as acomodações selecionadas.
 
-## Papéis de acesso (administrador x visualização)
+## Navegação por módulos (barra lateral)
 
-- **Sem login**: qualquer pessoa que abrir o link vê o calendário completo, navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais) — sincronizadas entre todos os dispositivos quando a API estiver configurada (veja abaixo). Também vê a barra de estoque de frigobar (se a sincronização estiver configurada).
-- **Administrador**: clicando em "🔒 Entrar como administrador" e digitando o código, libera:
+O painel é organizado em três módulos, acessíveis pela barra lateral esquerda:
+
+- **📋 Reservas** — o calendário semanal, sempre visível para qualquer pessoa.
+- **🧹 Faxinas** — o calendário de faxinas (veja seção abaixo). Visível para administrador, faxineira e colaboradores autorizados.
+- **🔧 Manutenção** — ordens de serviço e pedidos de material, em abas dentro do módulo. Visível só para administrador e colaboradores autorizados.
+
+Cada módulo só aparece na barra lateral para quem tem permissão de vê-lo; quem não tem acesso a nenhum módulo além de Reservas simplesmente não vê os outros botões.
+
+## Papéis de acesso
+
+- **Sem login**: qualquer pessoa que abrir o link vê o calendário completo (módulo Reservas), navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais) — sincronizadas entre todos os dispositivos quando a API estiver configurada (veja abaixo). Também vê a barra de estoque de frigobar (se a sincronização estiver configurada).
+- **Administrador**: clicando em "🔒 Entrar como administrador" e digitando o código, libera acesso a todos os módulos e:
   - Importar/colar CSV manualmente dentro do próprio painel (além do fluxo normal via GitHub).
   - Lançar e remover itens de consumo de frigobar por reserva.
   - Registrar reabastecimento de estoque (botão "📦 Estoque de frigobar", só aparece com a sincronização configurada).
   - Cadastrar, editar e remover produtos do catálogo de frigobar (botão "🧾 Produtos do frigobar").
-  - Ver e controlar o pagamento das faxinas (botão "🧹 Faxinas" — veja seção abaixo).
-- **Faxineira**: clicando em "🧹 Entrar como faxineira" e digitando o código próprio, libera uma visão sem nenhum dado financeiro (sem saldo da reserva, sem "a cobrar"), mas com:
+  - Ver e controlar o pagamento das faxinas, e resolver ordens de serviço/pedidos de material.
+  - Configurar o acesso do colaborador (botão "⚙️ Configurar colaborador" — veja abaixo).
+- **Faxineira**: clicando em "🧹 Entrar como faxineira" e digitando o código próprio, libera os módulos Reservas e Faxinas sem nenhum dado financeiro (sem saldo da reserva, sem "a cobrar"), mas com:
   - Ver todas as entradas e saídas normalmente.
   - Lançar consumo de frigobar por reserva e gerar a fatura de fechamento (mostra só o total do frigobar a cobrar, sem o saldo da reserva).
   - Marcar a faxina de uma reserva como executada (dentro de "Ver detalhes da reserva").
+- **Colaborador**: clicando em "🧑‍💼 Entrar como colaborador" e digitando o código próprio, libera **exatamente o que o administrador configurou** para esse código — nem mais, nem menos.
+
+### Configurar o colaborador
+
+O administrador usa o botão **"⚙️ Configurar colaborador"** para escolher:
+
+- **Quais módulos** ficam liberados (Reservas / Faxinas / Manutenção), com caixas de seleção independentes.
+- O **nível de acesso**: "Completo" (vê valores financeiros normalmente) ou "Limitado" (mesmo comportamento da faxineira — sem saldo, sem "a cobrar").
+
+Essa configuração é única (um só código de colaborador) e vale para qualquer pessoa que entrar com esse código — para dar acessos diferentes a pessoas diferentes, é preciso trocar a configuração antes de repassar o código a cada uma, ou combinar com elas horários diferentes de uso. A configuração fica salva na planilha (aba Config, chave `colaboradorPermissoes`) quando a sincronização estiver ativa, então vale para todos os dispositivos.
 
 ## Controle de faxinas
 
-- Toda reserva com data de check-out aparece com o badge **"🧹 Faxina pendente"** até alguém marcar como executada. Dentro de "Ver detalhes de uma reserva", o botão **"Marcar faxina como executada"** (visível para administrador e faxineira) registra a data e, opcionalmente, quem executou.
-- O botão **"🧹 Faxinas"** (administrador e faxineira) abre um **calendário em colunas por dia** — igual ao quadro de reservas — mostrando as cabanas/containers que precisam de faxina em cada dia de check-out. Clique em qualquer card para abrir os detalhes daquela faxina. Use "« Semana anterior" / "Próxima semana »" para navegar. Para o administrador, cada card mostra também valor e se já foi paga; a faxineira não vê esses dados.
+- Toda reserva com data de check-out aparece com o badge **"🧹 Faxina pendente"** até alguém marcar como executada. Dentro de "Ver detalhes de uma reserva", o botão **"Marcar faxina como executada"** (visível para administrador, faxineira e colaboradores autorizados) registra a data e, opcionalmente, quem executou.
+- O módulo **"🧹 Faxinas"** na barra lateral abre um **calendário em colunas por dia** — igual ao quadro de reservas — mostrando as cabanas/containers que precisam de faxina em cada dia de check-out. Clique em qualquer card para abrir os detalhes daquela faxina. Use "« Semana anterior" / "Próxima semana »" para navegar. Quem tem acesso financeiro completo vê também valor e se já foi paga; quem está no nível limitado não vê esses dados.
 - Dentro da seção "🧹 Faxina" dos detalhes de uma reserva, além de marcar como executada, é possível:
   - Escrever **observações de manutenção** (ex.: "torneira pingando"), sincronizadas junto com a faxina.
-  - **"🔧 Solicitar manutenção"** — registra um pedido de manutenção para aquela cabana (visível no painel "🔧 Manutenção" do administrador).
-  - **"📦 Solicitar material"** — registra um pedido de material/reposição (ex.: prato quebrado), visível no painel "📦 Materiais" do administrador.
-- O administrador marca cada solicitação de manutenção ou material como concluída nos respectivos painéis.
-- No painel de faxinas do administrador, mostra o **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas) e permite marcar cada uma como paga (registra a data do pagamento). O valor padrão por faxina é configurável no topo desse painel.
+  - **"🔧 Solicitar manutenção"** — registra um pedido de manutenção para aquela cabana (visível na aba "Ordens de Serviço" do módulo "🔧 Manutenção").
+  - **"📦 Solicitar material"** — registra um pedido de material/reposição (ex.: prato quebrado), visível na aba "Materiais" do módulo "🔧 Manutenção".
+- O administrador marca cada solicitação de manutenção ou material como concluída na respectiva aba.
+- No topo do módulo Faxinas (para quem tem acesso financeiro completo), mostra o **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas) e permite marcar cada uma como paga (registra a data do pagamento). O valor padrão por faxina também é configurável ali.
 
 ### ⚠️ Importante sobre o código de administrador
 
-O código fica definido na constante `ADMIN_PIN` dentro do `<script>` de `index.html` (procure por `const ADMIN_PIN = ...`). O código da faxineira fica na constante `FAXINEIRA_PIN`, logo abaixo. **Troque os dois valores antes de publicar.**
+O código fica definido na constante `ADMIN_PIN` dentro do `<script>` de `index.html` (procure por `const ADMIN_PIN = ...`). O código da faxineira fica na constante `FAXINEIRA_PIN` e o do colaborador na constante `COLABORADOR_PIN`, logo abaixo. **Troque os três valores antes de publicar.**
 
 Isso **não é uma senha de verdade** — como o site é público e estático, qualquer pessoa que abrir "Ver código-fonte da página" no navegador consegue ler esse valor. Serve apenas para evitar que alguém sem intenção de editar clique e mexa por engano nos dados. Não use para proteger informações sensíveis.
 
