@@ -78,6 +78,18 @@ No topo do módulo Faxinas, o administrador define dois valores: um para **caban
 - **Registro de pagamento (só administrador):** ao clicar em **"💳 Registrar pagamento"** (nos detalhes da reserva) ou **"Marcar pago"** (no calendário de faxinas), o administrador informa a **forma de pagamento** (ex.: Dinheiro, PIX, Transferência) e a **data**. Fica registrado, por exemplo: *"pago em 19/07/2026 via PIX"*.
 - O **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas) aparece no topo do módulo Faxinas **somente para o administrador**.
 
+### Tabela "Faxinas registradas — controle de pagamento" (só administrador)
+
+Abaixo do calendário de faxinas há uma tabela com **todas as faxinas já confirmadas**, mostrando cabana, reserva, data de execução, quem executou, valor, se está paga, forma e data do pagamento. Nela o administrador pode:
+
+- **"✏️ Valor"** — lançar/corrigir o valor daquela faxina específica (o padrão vem da configuração por tipo, mas aqui dá para ajustar caso a caso).
+- **"💳 Pagar"** — registrar o pagamento informando **valor**, **forma de pagamento** e **data**.
+- **"↩️ Desfazer"** — desfazer um pagamento lançado por engano.
+
+> ⚠️ **Por que essa tabela existe:** o `data/reservas.csv` é substituído a cada atualização, e o FazReservas deixa de exportar reservas antigas. O calendário mostra faxinas só das reservas que ainda estão no CSV — então, quando uma reserva sai do arquivo, a faxina dela sumiria da tela. Esta tabela lê direto da planilha, então **nenhuma faxina (e nenhum valor a pagar) se perde** quando o CSV é atualizado.
+
+> 📅 **Sobre as datas:** o Google Sheets converte automaticamente textos como "19/07/2026" em data real, e devolve num formato técnico. O painel normaliza tudo para DD/MM/AAAA na exibição.
+
 ## Módulo de Manutenção
 
 - **Resumo** no topo: quantas ordens estão abertas, quantas são emergência, quantas programadas e quantas já foram concluídas.

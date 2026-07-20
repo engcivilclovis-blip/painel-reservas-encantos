@@ -370,6 +370,7 @@
     </div>
   </div>
   <div class="board" id="faxinasBoard"></div>
+  <div id="faxinasRegistradasBox" style="margin-top:18px;"></div>
 </div>
 
 <div class="module-view" id="module-manutencao">
@@ -777,6 +778,17 @@ function faxinasDays(){
   }
   return days;
 }
+// O Google Sheets converte "19/07/2026" em data real; ao ler volta como ISO.
+// Esta função normaliza qualquer formato para DD/MM/AAAA.
+function fmtDataBR(v){
+  if(!v) return '';
+  if(v instanceof Date) return v.toLocaleDateString('pt-BR');
+  const s = String(v).trim();
+  if(/^\d{2}\/\d{2}\/\d{4}/.test(s)) return s.slice(0,10);
+  const d = new Date(s);
+  if(!isNaN(d.getTime())) return d.toLocaleDateString('pt-BR');
+  return s;
+}
 function todasFaxinas(){
   const saidas = reservations.filter(r => r.checkout && !norm(r.status).includes('cancel'));
   return saidas.map(r => {
@@ -795,6 +807,15 @@ function todasFaxinas(){
     };
   }).sort((a,b) => (b.checkout||0) - (a.checkout||0));
 }
+// Todas as faxinas JÁ EXECUTADAS que estão gravadas, mesmo que a reserva
+// já não esteja no CSV atual (o FazReservas some com reservas antigas).
+function faxinasRegistradas(){
+  const fonte = apiAvailable() ? faxinasCache : faxinaDetailsLocal;
+  return Object.keys(fonte)
+    .map(k => Object.assign({reservaChave:k}, fonte[k]))
+    .filter(f => f && f.dataExecucao)
+    .sort((a,b) => String(b.dataExecucao).localeCompare(String(a.dataExecucao)));
+}
 // Vê o VALOR da faxina (quanto vale): admin + colaborador da limpeza.
 function podeVerFinanceiroFaxina(){ return isAdmin || isFaxineira; }
 // Vê/registra PAGAMENTO (pago, forma, data, saldo): somente admin, para evitar fraude na cobrança.
@@ -808,10 +829,14 @@ function renderFaxinasList(){
   cabInput.readOnly = !isAdmin;
   contInput.readOnly = !isAdmin;
   const todas = todasFaxinas();
-  const saldoAPagar = todas.filter(f => f.dataExecucao && !f.pago).reduce((s,f) => s + f.valor, 0);
+  // O saldo considera TODAS as faxinas registradas (inclusive de reservas que
+  // já saíram do CSV), senão o valor a pagar sumiria quando o CSV é atualizado.
+  const registradas = faxinasRegistradas();
+  const saldoAPagar = registradas.filter(f => !f.pago).reduce((s,f) => s + (Number(f.valor)||0), 0);
   document.getElementById('faxinasSaldoBox').innerHTML = podeVerPagamento()
     ? '<strong>Saldo a pagar (faxinas concluídas e não pagas): ' + fmtMoney(saldoAPagar) + '</strong>'
     : '';
+  renderFaxinasRegistradas();
   const days = faxinasDays();
   document.getElementById('faxinasWeekLabel').textContent =
     days[0].toLocaleDateString('pt-BR') + ' a ' + days[6].toLocaleDateString('pt-BR');
@@ -849,28 +874,101 @@ function faxinaCardHtml(f){
 function abrirFaxinaDetalhe(key){
   openDetailsModal(key);
 }
-function marcarFaxinaPaga(key){
+
+// ---------- Controle de pagamento das faxinas (somente administrador) ----------
+function renderFaxinasRegistradas(){
+  const box = document.getElementById('faxinasRegistradasBox');
+  if(!box) return;
+  if(!podeVerPagamento()){ box.innerHTML = ''; return; }
+  const lista = faxinasRegistradas();
+  if(!lista.length){
+    box.innerHTML = '<h3 style="font-family:\'Playfair Display\',Georgia,serif;font-size:16px;margin:0 0 8px;">Faxinas registradas</h3><p class="empty">Nenhuma faxina confirmada ainda.</p>';
+    return;
+  }
+  const totalPago = lista.filter(f => f.pago).reduce((s,f) => s + (Number(f.valor)||0), 0);
+  const totalAberto = lista.filter(f => !f.pago).reduce((s,f) => s + (Number(f.valor)||0), 0);
+  box.innerHTML =
+    '<h3 style="font-family:\'Playfair Display\',Georgia,serif;font-size:16px;margin:0 0 8px;">Faxinas registradas — controle de pagamento</h3>' +
+    '<div class="summary-bar" style="margin-bottom:8px;"><span>Total já pago: <b>' + fmtMoney(totalPago) + '</b></span>' +
+    '<span>Total a pagar: <b>' + fmtMoney(totalAberto) + '</b></span>' +
+    '<span>Faxinas: <b>' + lista.length + '</b></span></div>' +
+    '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr>' +
+    '<th>Cabana</th><th>Reserva</th><th>Execução</th><th>Por</th><th>Valor</th><th>Pago</th><th>Forma</th><th>Data pgto.</th><th></th>' +
+    '</tr></thead><tbody>' +
+    lista.map(f => {
+      const k = encodeURIComponent(f.reservaChave);
+      return '<tr>' +
+        '<td>' + (f.cabana || '-') + '</td>' +
+        '<td style="font-size:11px;">' + (f.reservaLabel || f.reservaChave) + '</td>' +
+        '<td>' + fmtDataBR(f.dataExecucao) + '</td>' +
+        '<td>' + (f.executadoPor || '-') + '</td>' +
+        '<td>' + fmtMoney(Number(f.valor)||0) + '</td>' +
+        '<td>' + (f.pago ? '✅ Sim' : '⏳ Não') + '</td>' +
+        '<td>' + (f.formaPagamento || '-') + '</td>' +
+        '<td>' + (fmtDataBR(f.dataPagamento) || '-') + '</td>' +
+        '<td style="white-space:nowrap;">' +
+          '<button class="mini secondary" onclick="editarValorFaxina(\'' + k + '\')">✏️ Valor</button> ' +
+          (f.pago
+            ? '<button class="mini secondary" onclick="desfazerPagamentoFaxina(\'' + k + '\')">↩️ Desfazer</button>'
+            : '<button class="mini" onclick="marcarFaxinaPaga(\'' + k + '\')">💳 Pagar</button>') +
+        '</td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table></div>';
+}
+function salvarRegistroFaxina(registro, aoTerminar){
+  if(apiAvailable()){
+    // Atualiza o cache local na hora, para que uma edição seguinte não leia
+    // um estado antigo enquanto a planilha ainda está respondendo.
+    faxinasCache[registro.reservaChave] = registro;
+    renderFaxinasList();
+    apiSalvarFaxina(registro)
+      .then(() => { refreshFrigobarCache(); if(aoTerminar) aoTerminar(); })
+      .catch(() => alert('Não foi possível registrar agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    faxinaDetailsLocal[registro.reservaChave] = registro;
+    saveFaxinasLocal();
+    renderFaxinasList();
+    if(aoTerminar) aoTerminar();
+  }
+}
+function editarValorFaxina(keyEncoded){
+  if(!isAdmin){ alert('Somente o administrador pode alterar o valor.'); return; }
+  const key = decodeURIComponent(keyEncoded);
+  const fx = faxinaStatus(key);
+  if(!fx){ alert('Faxina não encontrada.'); return; }
+  const novo = prompt('Valor desta faxina (R$):', String(Number(fx.valor)||0));
+  if(novo === null) return;
+  const v = parseFloat(String(novo).replace(',','.'));
+  if(isNaN(v)){ alert('Valor inválido.'); return; }
+  salvarRegistroFaxina(Object.assign({}, fx, {reservaChave:key, valor:v}));
+}
+function marcarFaxinaPaga(keyEncoded){
   if(!isAdmin){ alert('Somente o administrador pode registrar pagamentos.'); return; }
+  const key = decodeURIComponent(keyEncoded);
   const fx = faxinaStatus(key);
   if(!fx || !fx.dataExecucao){ alert('Esta faxina ainda não foi executada.'); return; }
-  const forma = prompt('Forma de pagamento (ex.: Dinheiro, PIX, Transferência):', 'PIX');
+  const valorInformado = prompt('Valor pago (R$):', String(Number(fx.valor)||0));
+  if(valorInformado === null) return;
+  const v = parseFloat(String(valorInformado).replace(',','.'));
+  if(isNaN(v)){ alert('Valor inválido.'); return; }
+  const forma = prompt('Forma de pagamento (ex.: Dinheiro, PIX, Transferência):', fx.formaPagamento || 'PIX');
   if(forma === null) return;
   const dataInformada = prompt('Data do pagamento (DD/MM/AAAA):', new Date().toLocaleDateString('pt-BR'));
   if(dataInformada === null) return;
-  const registro = Object.assign({}, fx, {
-    reservaChave:key, pago:true,
+  salvarRegistroFaxina(Object.assign({}, fx, {
+    reservaChave:key, pago:true, valor:v,
     dataPagamento: (dataInformada.trim() || new Date().toLocaleDateString('pt-BR')),
     formaPagamento: (forma.trim() || '-')
-  });
-  if(apiAvailable()){
-    apiSalvarFaxina(registro)
-      .then(() => { refreshFrigobarCache(); })
-      .catch(() => alert('Não foi possível registrar agora. Verifique sua conexão e tente novamente.'));
-  } else {
-    faxinaDetailsLocal[key] = registro;
-    saveFaxinasLocal();
-    renderFaxinasList();
-  }
+  }));
+}
+function desfazerPagamentoFaxina(keyEncoded){
+  if(!isAdmin){ alert('Somente o administrador pode alterar pagamentos.'); return; }
+  const key = decodeURIComponent(keyEncoded);
+  const fx = faxinaStatus(key);
+  if(!fx) return;
+  if(!confirm('Desfazer o registro de pagamento desta faxina?')) return;
+  salvarRegistroFaxina(Object.assign({}, fx, {reservaChave:key, pago:false, dataPagamento:'', formaPagamento:''}));
 }
 function salvarValorFaxina(tipo, val){
   if(!isAdmin){ alert('Somente administradores podem alterar os valores de faxina.'); renderFaxinasList(); return; }
@@ -1665,14 +1763,14 @@ function renderDetailsBody(){
     <label>🧹 Faxina ${syncNote}</label>
     <p style="margin:4px 0;">
       ${fx && fx.dataExecucao
-        ? 'Executada em <strong>' + fx.dataExecucao + '</strong>' + (fx.executadoPor ? ' por ' + fx.executadoPor : '')
+        ? 'Executada em <strong>' + fmtDataBR(fx.dataExecucao) + '</strong>' + (fx.executadoPor ? ' por ' + fx.executadoPor : '')
             + (podeVerFinanceiroFaxina() ? ' · valor: ' + fmtMoney(Number(fx.valor)||0) : '')
-            + (podeVerPagamento() ? (fx.pago ? ' (pago em ' + (fx.dataPagamento||'?') + (fx.formaPagamento ? ' via ' + fx.formaPagamento : '') + ')' : ' (pendente de pagamento)') : '')
+            + (podeVerPagamento() ? (fx.pago ? ' (pago em ' + (fmtDataBR(fx.dataPagamento)||'?') + (fx.formaPagamento ? ' via ' + fx.formaPagamento : '') + ')' : ' (pendente de pagamento)') : '')
         : '<span class="empty" style="padding:0;">Faxina ainda pendente.</span>'}
     </p>
     ${isOperador() ? `
       <button class="secondary mini" onclick="marcarFaxinaExecutada('${currentDetailKey}', '${encodeURIComponent(label0)}', '${encodeURIComponent(cabana0)}')">Marcar faxina como executada</button>
-      ${(isAdmin && fx && fx.dataExecucao && !fx.pago) ? `<button class="mini" onclick="marcarFaxinaPaga('${currentDetailKey}')">💳 Registrar pagamento</button>` : ''}
+      ${(isAdmin && fx && fx.dataExecucao && !fx.pago) ? `<button class="mini" onclick="marcarFaxinaPaga('${encodeURIComponent(currentDetailKey)}')">💳 Registrar pagamento</button>` : ''}
       <textarea id="obsManutText" class="obs-textarea" style="height:50px;margin-top:8px;" placeholder="Observações de manutenção (ex.: prato quebrado, torneira pingando...)">${(fx && fx.obsManutencao) || ''}</textarea>
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
         <button class="secondary mini" onclick="solicitarManutencao('${currentDetailKey}', '${encodeURIComponent(label0)}', '${encodeURIComponent(cabana0)}')">🔧 Solicitar manutenção</button>
@@ -1819,7 +1917,7 @@ function makeCard(res, isCheckout){
   const cabana = res.acomodacao || res.unidade || '(sem cabana)';
   const fx = isCheckout ? faxinaStatus(key) : null;
   const fxBadge = isCheckout
-    ? (fx && fx.dataExecucao ? `<span class="badge b-ok">🧹 Faxina concluída (${fx.dataExecucao})</span>` : `<span class="badge b-warn">🧹 Faxina pendente</span>`)
+    ? (fx && fx.dataExecucao ? `<span class="badge b-ok">🧹 Faxina concluída (${fmtDataBR(fx.dataExecucao)})</span>` : `<span class="badge b-warn">🧹 Faxina pendente</span>`)
     : '';
   return `<div class="card p-${pClass}" data-detail-key="${key}" title="Clique para ver observações e frigobar">
     <div class="cab">${cabana}</div>
