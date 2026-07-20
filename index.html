@@ -200,6 +200,7 @@
       </div>
     </div>
     <button class="secondary" onclick="initialLoad()">🔄 Atualizar dados</button>
+    <button class="secondary" id="syncReservasBtn" onclick="buscarReservasNoEmail()" style="display:none;">📧 Buscar reservas no e-mail</button>
     <span class="status" id="statusMsg">Nenhum dado carregado ainda.</span>
   </div>
   <div class="toolbar-row">
@@ -575,6 +576,10 @@ function apiCriarPedidoMaterial(payload){
 }
 function apiConcluirPedidoMaterial(id){
   return apiPost({action:'concluirPedidoMaterial', id:id});
+}
+function apiGetReservasCsv(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=reservasCsv&_=' + Date.now(), null, 20000)
+    .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
 
 let estoqueCache = [];
@@ -1316,6 +1321,7 @@ function updateAdminUI(){
   document.getElementById('stockBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('productsBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('pixBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('syncReservasBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   const fbtn = document.getElementById('faxineiraToggleBtn');
   fbtn.textContent = isFaxineira ? '🧹 Colaborador da Limpeza (clique para sair)' : '🧹 Entrar como colaborador da limpeza';
   fbtn.classList.toggle('is-active', isFaxineira);
@@ -1528,15 +1534,48 @@ function restoreLastCSV(){
   if(saved) loadCSVText(saved, false, 'salvo neste navegador');
   else render();
 }
-function initialLoad(){
+function carregarCsvDoRepositorio(){
   const url = 'data/reservas.csv?_=' + Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
-  fetch(url, {cache:'no-store', signal: controller.signal})
+  return fetch(url, {cache:'no-store', signal: controller.signal})
     .finally(() => clearTimeout(timer))
     .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-    .then(text => loadCSVText(text, true, 'publicado no repositório'))
-    .catch(() => restoreLastCSV());
+    .then(text => loadCSVText(text, true, 'publicado no repositório'));
+}
+// Ordem das fontes: 1) reservas sincronizadas do e-mail (planilha),
+// 2) CSV publicado no repositório, 3) último CSV salvo neste navegador.
+function initialLoad(){
+  if(apiAvailable()){
+    apiGetReservasCsv()
+      .then(r => {
+        if(!r || !r.csv || r.csv.length < 50) throw new Error('sem reservas na planilha');
+        loadCSVText(r.csv, true, 'sincronizado do FazReservas' + (r.atualizadoEm ? ' em ' + r.atualizadoEm : ''));
+      })
+      .catch(() => carregarCsvDoRepositorio().catch(() => restoreLastCSV()));
+  } else {
+    carregarCsvDoRepositorio().catch(() => restoreLastCSV());
+  }
+}
+function buscarReservasNoEmail(){
+  if(!isAdmin){ alert('Somente administradores podem sincronizar as reservas.'); return; }
+  if(!apiAvailable()){ alert('Sincronização indisponível: a API não está configurada.'); return; }
+  const btn = document.getElementById('syncReservasBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Buscando no e-mail…'; }
+  apiPost({action:'atualizarReservasEmail'})
+    .then(r => {
+      if(r && r.ok){
+        alert('Reservas atualizadas do e-mail.\n\nArquivo: ' + (r.arquivo||'?') +
+              '\nRemetente: ' + (r.de||'?') +
+              '\nData do e-mail: ' + (r.dataEmail||'?') +
+              '\nLinhas: ' + (r.linhasGravadas||0));
+        initialLoad();
+      } else {
+        alert('Não foi possível atualizar:\n' + ((r && r.error) || 'erro desconhecido'));
+      }
+    })
+    .catch(() => alert('Não foi possível falar com a planilha agora. Verifique sua conexão.'))
+    .finally(() => { if(btn){ btn.disabled = false; btn.textContent = '📧 Buscar reservas no e-mail'; } });
 }
 
 // ---------- Entrada de dados (somente administrador) ----------
