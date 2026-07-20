@@ -211,11 +211,10 @@
   <div class="toolbar-row">
     <button class="btn-details" onclick="openDetailsModal()">📋 Ver detalhes de uma reserva (observações / frigobar)</button>
     <button class="btn-admin" id="adminToggleBtn" onclick="toggleAdmin()">🔒 Entrar como administrador</button>
-    <button class="btn-admin" id="faxineiraToggleBtn" onclick="toggleFaxineira()">🧹 Entrar como faxineira</button>
-    <button class="btn-admin" id="colaboradorToggleBtn" onclick="toggleColaborador()">🧑‍💼 Entrar como colaborador</button>
+    <button class="btn-admin" id="faxineiraToggleBtn" onclick="toggleFaxineira()">🧹 Entrar como colaborador da limpeza</button>
+    <button class="btn-admin" id="manutColabToggleBtn" onclick="toggleManutColab()">🔧 Entrar como colaborador de manutenção</button>
     <button class="btn-details" id="stockBtn" onclick="openStockModal()" style="display:none;">📦 Estoque de frigobar</button>
     <button class="btn-details" id="productsBtn" onclick="openProductsModal()" style="display:none;">🧾 Produtos do frigobar</button>
-    <button class="btn-details" id="configColabBtn" onclick="abrirConfigColaboradorModal()" style="display:none;">⚙️ Configurar colaborador</button>
   </div>
 </div>
 
@@ -268,10 +267,10 @@
 <div class="modal-overlay" id="faxineiraModal" style="display:none;">
   <div class="modal admin-modal">
     <div class="modal-head">
-      <h2>Acesso da Faxineira</h2>
+      <h2>Acesso do Colaborador da Limpeza</h2>
       <button class="secondary" onclick="closeFaxineiraModal()">Fechar</button>
     </div>
-    <label for="faxineiraPinInput">Código da faxineira</label>
+    <label for="faxineiraPinInput">Código do colaborador da limpeza</label>
     <form onsubmit="event.preventDefault(); submitFaxineiraPin();">
       <input type="password" id="faxineiraPinInput" autocomplete="off" placeholder="Digite o código">
       <div class="admin-error" id="faxineiraError">Código incorreto. Tente novamente.</div>
@@ -280,37 +279,18 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="colaboradorModal" style="display:none;">
+<div class="modal-overlay" id="manutColabModal" style="display:none;">
   <div class="modal admin-modal">
     <div class="modal-head">
-      <h2>Acesso do Colaborador</h2>
-      <button class="secondary" onclick="closeColaboradorModal()">Fechar</button>
+      <h2>Acesso do Colaborador de Manutenção</h2>
+      <button class="secondary" onclick="closeManutColabModal()">Fechar</button>
     </div>
-    <label for="colaboradorPinInput">Código do colaborador</label>
-    <form onsubmit="event.preventDefault(); submitColaboradorPin();">
-      <input type="password" id="colaboradorPinInput" autocomplete="off" placeholder="Digite o código">
-      <div class="admin-error" id="colaboradorError">Código incorreto. Tente novamente.</div>
+    <label for="manutColabPinInput">Código do colaborador de manutenção</label>
+    <form onsubmit="event.preventDefault(); submitManutColabPin();">
+      <input type="password" id="manutColabPinInput" autocomplete="off" placeholder="Digite o código">
+      <div class="admin-error" id="manutColabError">Código incorreto. Tente novamente.</div>
       <button type="submit">Entrar</button>
     </form>
-  </div>
-</div>
-
-<div class="modal-overlay" id="configColaboradorModal" style="display:none;">
-  <div class="modal">
-    <div class="modal-head">
-      <h2>⚙️ Configurar Colaborador</h2>
-      <button class="secondary" onclick="closeConfigColaboradorModal()">Fechar</button>
-    </div>
-    <p style="font-size:13px;color:#5a5049;">Escolha quais módulos ficam liberados com o código de colaborador, e o nível de acesso.</p>
-    <label class="chk"><input type="checkbox" id="colabModReservas"> Módulo Reservas</label>
-    <label class="chk"><input type="checkbox" id="colabModFaxinas"> Módulo Faxinas</label>
-    <label class="chk"><input type="checkbox" id="colabModManutencao"> Módulo Manutenção</label>
-    <label for="colabNivel" style="margin-top:10px;">Nível de acesso</label>
-    <select id="colabNivel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
-      <option value="completo">Completo (vê valores financeiros)</option>
-      <option value="limitado">Limitado (sem valores financeiros)</option>
-    </select>
-    <button style="margin-top:12px;" onclick="salvarConfigColaborador()">Salvar</button>
   </div>
 </div>
 
@@ -354,8 +334,11 @@
 <div class="module-view" id="module-faxinas">
   <div class="toolbar">
     <div class="frigobar-add" id="valorFaxinaBox">
-      <label class="chk" style="gap:8px;">Valor padrão por faxina (R$):
-        <input type="number" id="valorFaxinaPadraoInput" step="0.01" style="width:100px" onchange="salvarValorFaxinaPadrao(this.value)">
+      <label class="chk" style="gap:8px;">Valor por faxina — Cabanas (R$):
+        <input type="number" id="valorFaxinaCabanaInput" step="0.01" style="width:100px" onchange="salvarValorFaxina('cabana', this.value)">
+      </label>
+      <label class="chk" style="gap:8px;">Containers/Studios (R$):
+        <input type="number" id="valorFaxinaContainerInput" step="0.01" style="width:100px" onchange="salvarValorFaxina('container', this.value)">
       </label>
     </div>
     <div id="faxinasSaldoBox" style="margin:8px 0;font-size:14px;"></div>
@@ -370,12 +353,36 @@
 </div>
 
 <div class="module-view" id="module-manutencao">
+  <div id="manutResumoBox" style="margin-bottom:12px;"></div>
   <div class="subtabs">
     <div class="subtab on" id="manutTabBtn-ordens" onclick="irManutTab('ordens')">🔧 Ordens de Serviço</div>
     <div class="subtab" id="manutTabBtn-materiais" onclick="irManutTab('materiais')">📦 Materiais</div>
+    <div class="subtab" id="manutTabBtn-semana" onclick="irManutTab('semana')">📅 Programação Semanal</div>
   </div>
-  <div class="manut-tab on" id="manutTab-ordens"><div id="manutencaoList"></div></div>
+  <div class="manut-tab on" id="manutTab-ordens">
+    <button class="secondary" id="toggleNovaOrdemBtn" onclick="toggleNovaOrdemBox()" style="display:none;margin-bottom:10px;">+ Nova Ordem de Serviço</button>
+    <div class="frigobar-add" id="novaOrdemBox" style="display:none;">
+      <select id="novaOrdemCabana"></select>
+      <input type="text" id="novaOrdemDesc" placeholder="Descrição">
+      <select id="novaOrdemTipo">
+        <option value="emergencia">Emergência</option>
+        <option value="programada">Programada</option>
+      </select>
+      <input type="date" id="novaOrdemData" title="Data agendada (opcional)">
+      <button onclick="criarOrdemServicoUI()">Criar</button>
+    </div>
+    <div id="manutencaoList"></div>
+  </div>
   <div class="manut-tab" id="manutTab-materiais"><div id="materiaisList"></div></div>
+  <div class="manut-tab" id="manutTab-semana">
+    <div class="toolbar-row" style="margin-bottom:10px;">
+      <button class="secondary" onclick="changeManutSemanaWeek(-1)">&laquo; Semana anterior</button>
+      <span id="manutSemanaWeekLabel">-</span>
+      <button class="secondary" onclick="changeManutSemanaWeek(1)">Próxima semana &raquo;</button>
+      <button class="secondary" onclick="manutSemanaWeekStart = mondayOf(new Date()); renderManutSemana();">Hoje</button>
+    </div>
+    <div class="board" id="manutSemanaBoard"></div>
+  </div>
 </div>
 
   </div>
@@ -390,23 +397,17 @@
 const ADMIN_PIN = 'encantos2026';
 let isAdmin = false;
 
-// Código de acesso da faxineira. Troque este valor antes de publicar o painel.
+// Código de acesso do colaborador da limpeza. Troque este valor antes de publicar o painel.
 // Dá acesso a lançar consumo de frigobar e marcar faxinas como executadas,
-// sem mostrar saldos/valores da reserva.
+// vendo o valor da faxina mas sem ver saldos/valores da reserva.
 const FAXINEIRA_PIN = 'faxina2026';
 let isFaxineira = false;
 
-// Código de acesso do colaborador. Troque este valor antes de publicar o painel.
-// O que esse código libera é configurável pelo administrador (botão "⚙️ Configurar
-// colaborador"): quais módulos (Reservas/Faxinas/Manutenção) ficam visíveis e se
-// mostra ou não valores financeiros.
-const COLABORADOR_PIN = 'colaborador2026';
-let isColaborador = false;
-let colaboradorPermissoes = { modulos: {reservas:true, faxinas:false, manutencao:false}, nivel: 'completo' };
-try {
-  const permSalvas = JSON.parse(localStorage.getItem('painelColaboradorPermissoes'));
-  if(permSalvas) colaboradorPermissoes = permSalvas;
-} catch(e){}
+// Código de acesso do colaborador de manutenção. Troque este valor antes de publicar.
+// Só tem acesso ao módulo Manutenção, sem nenhum dado financeiro em lugar nenhum
+// (não vê reservas, não vê frigobar, não vê valores de faxina).
+const MANUTENCAO_PIN = 'manutencao2026';
+let isManutColab = false;
 
 // Cole aqui a URL do Web App do Google Apps Script (termina em /exec) depois de publicar
 // (veja o passo a passo no README.md). Enquanto ficar vazia, o consumo de frigobar é salvo
@@ -542,6 +543,9 @@ function apiCriarOrdemServico(payload){
 function apiConcluirOrdemServico(id){
   return apiPost({action:'concluirOrdemServico', id:id});
 }
+function apiAgendarOrdemServico(id, dataAgendada){
+  return apiPost({action:'agendarOrdemServico', id:id, dataAgendada:dataAgendada});
+}
 function apiGetPedidosMaterial(){
   return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=pedidosMaterial').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
@@ -556,7 +560,11 @@ let estoqueCache = [];
 let frigobarTotalsCache = {};
 let obsCache = {};
 let faxinasCache = {};
-let valorFaxinaPadrao = 80;
+let valorFaxinaCabana = 80;
+let valorFaxinaContainer = 80;
+function valorFaxinaPorCabana(cabana){
+  return (cabana||'').toUpperCase().indexOf('CONTAINER') === 0 ? valorFaxinaContainer : valorFaxinaCabana;
+}
 let faxinaDetailsLocal = {};
 try { faxinaDetailsLocal = JSON.parse(localStorage.getItem('painelFaxinas') || '{}'); } catch(e){ faxinaDetailsLocal = {}; }
 function saveFaxinasLocal(){ localStorage.setItem('painelFaxinas', JSON.stringify(faxinaDetailsLocal)); }
@@ -600,14 +608,13 @@ function refreshFrigobarCache(){
         faxinas.forEach(f => { faxinasCache[f.reservaChave] = f; });
       }
       if(config && typeof config === 'object' && !config.error){
-        if(config.valorFaxina !== undefined) valorFaxinaPadrao = Number(config.valorFaxina) || 80;
-        if(config.colaboradorPermissoes){
-          try { colaboradorPermissoes = JSON.parse(config.colaboradorPermissoes); updateSidebarUI(); } catch(e){}
-        }
+        if(config.valorFaxinaCabana !== undefined) valorFaxinaCabana = Number(config.valorFaxinaCabana) || 80;
+        if(config.valorFaxinaContainer !== undefined) valorFaxinaContainer = Number(config.valorFaxinaContainer) || 80;
       }
       renderStock();
       render();
       if(activeModulo === 'faxinas') renderFaxinasList();
+      if(activeModulo === 'manutencao'){ renderManutencaoList(); renderMateriaisList(); renderManutSemana(); }
     })
     .catch(() => { /* mantém o último estado conhecido se a rede falhar */ });
 }
@@ -763,11 +770,18 @@ function todasFaxinas(){
     };
   }).sort((a,b) => (b.checkout||0) - (a.checkout||0));
 }
+function podeVerFinanceiroFaxina(){ return isAdmin || isFaxineira; }
 function renderFaxinasList(){
-  document.getElementById('valorFaxinaBox').style.display = isAdmin ? 'flex' : 'none';
+  document.getElementById('valorFaxinaBox').style.display = podeVerFinanceiroFaxina() ? 'flex' : 'none';
+  const cabInput = document.getElementById('valorFaxinaCabanaInput');
+  const contInput = document.getElementById('valorFaxinaContainerInput');
+  cabInput.value = valorFaxinaCabana;
+  contInput.value = valorFaxinaContainer;
+  cabInput.readOnly = !isAdmin;
+  contInput.readOnly = !isAdmin;
   const todas = todasFaxinas();
   const saldoAPagar = todas.filter(f => f.dataExecucao && !f.pago).reduce((s,f) => s + f.valor, 0);
-  document.getElementById('faxinasSaldoBox').innerHTML = isAdmin
+  document.getElementById('faxinasSaldoBox').innerHTML = podeVerFinanceiroFaxina()
     ? '<strong>Saldo a pagar (faxinas concluídas e não pagas): ' + fmtMoney(saldoAPagar) + '</strong>'
     : '';
   const days = faxinasDays();
@@ -793,7 +807,7 @@ function renderFaxinasList(){
 }
 function faxinaCardHtml(f){
   const statusBadge = f.dataExecucao ? '<span class="badge b-ok">🧹 Concluída</span>' : '<span class="badge b-warn">🧹 Pendente</span>';
-  const financeiro = (!hideFinance() && f.dataExecucao) ? '<div class="meta">Valor: ' + fmtMoney(f.valor) + ' · ' + (f.pago ? 'Pago' : 'Não pago') + '</div>' : '';
+  const financeiro = (podeVerFinanceiroFaxina() && f.dataExecucao) ? '<div class="meta">Valor: ' + fmtMoney(f.valor) + ' · ' + (f.pago ? 'Pago' : 'Não pago') + '</div>' : '';
   return `<div class="card" onclick="abrirFaxinaDetalhe('${f.key}')" title="Clique para ver detalhes desta faxina">
     <div class="cab">${f.cabana}</div>
     <div class="meta">${f.hospede}</div>
@@ -818,11 +832,13 @@ function marcarFaxinaPaga(key){
     renderFaxinasList();
   }
 }
-function salvarValorFaxinaPadrao(val){
+function salvarValorFaxina(tipo, val){
+  if(!isAdmin){ alert('Somente administradores podem alterar os valores de faxina.'); renderFaxinasList(); return; }
   const v = parseFloat(val) || 0;
-  valorFaxinaPadrao = v;
+  if(tipo === 'cabana') valorFaxinaCabana = v; else valorFaxinaContainer = v;
   if(apiAvailable()){
-    apiSalvarConfig('valorFaxina', v).catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
+    apiSalvarConfig(tipo === 'cabana' ? 'valorFaxinaCabana' : 'valorFaxinaContainer', v)
+      .catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
   }
 }
 
@@ -837,26 +853,140 @@ function renderListaSolicitacoes(boxId, lista, statusAberto, statusFn){
     '</td></tr>').join('') +
     '</tbody></table>';
 }
+function renderOrdensServicoList(lista){
+  const box = document.getElementById('manutencaoList');
+  if(!lista.length){ box.innerHTML = '<p class="empty">Nenhuma ordem de serviço registrada.</p>'; return; }
+  box.innerHTML = '<table class="fb-table"><thead><tr><th>Cabana</th><th>Descrição</th><th>Tipo</th><th>Agendada p/</th><th>Criada em</th><th>Status</th><th></th></tr></thead><tbody>' +
+    lista.map(o => '<tr><td>' + (o.cabana||'') + '</td><td>' + (o.descricao||'') + '</td><td>' +
+      (o.tipo === 'emergencia' ? '🔴 Emergência' : '🗓️ Programada') + '</td><td>' +
+      (o.dataAgendada ? new Date(o.dataAgendada + 'T12:00:00').toLocaleDateString('pt-BR') : '-') + '</td><td>' + (o.data||'') + '</td><td>' +
+      (o.status === 'aberta' ? '⏳ aberto' : '✅ concluído') + '</td><td style="white-space:nowrap;">' +
+      (o.status === 'aberta' ? '<button class="mini secondary" onclick="concluirOrdemServico(\'' + o.id + '\')">Concluir</button> ' : '') +
+      (o.status === 'aberta' && isAdmin && !o.dataAgendada ? '<button class="mini secondary" onclick="agendarOrdemServicoUI(\'' + o.id + '\')">Agendar</button>' : '') +
+    '</td></tr>').join('') +
+    '</tbody></table>';
+}
+function renderManutResumo(){
+  const box = document.getElementById('manutResumoBox');
+  const lista = apiAvailable() ? ordensServicoCache : ordensServicoLocal;
+  const abertas = lista.filter(o => o.status === 'aberta');
+  const emergencias = abertas.filter(o => o.tipo === 'emergencia').length;
+  const programadas = abertas.length - emergencias;
+  const concluidas = lista.filter(o => o.status !== 'aberta').length;
+  box.innerHTML = '<div class="summary-bar">' +
+    '<span>Abertas: <b>' + abertas.length + '</b></span>' +
+    '<span>Emergência: <b>' + emergencias + '</b></span>' +
+    '<span>Programadas: <b>' + programadas + '</b></span>' +
+    '<span>Concluídas: <b>' + concluidas + '</b></span>' +
+    '</div>';
+}
 function renderManutencaoList(){
   const box = document.getElementById('manutencaoList');
   box.innerHTML = '<p class="empty">Carregando…</p>';
+  document.getElementById('toggleNovaOrdemBtn').style.display = isAdmin ? 'inline-block' : 'none';
   if(apiAvailable()){
     apiGetOrdensServico()
-      .then(lista => { ordensServicoCache = Array.isArray(lista) ? lista : []; renderListaSolicitacoes('manutencaoList', ordensServicoCache, 'aberta', 'concluirOrdemServico'); })
+      .then(lista => { ordensServicoCache = Array.isArray(lista) ? lista : []; renderManutResumo(); renderOrdensServicoList(ordensServicoCache); })
       .catch(() => { box.innerHTML = '<p class="empty">Não foi possível carregar. Verifique sua conexão e tente novamente.</p>'; });
   } else {
-    renderListaSolicitacoes('manutencaoList', ordensServicoLocal, 'aberta', 'concluirOrdemServico');
+    renderManutResumo();
+    renderOrdensServicoList(ordensServicoLocal);
   }
 }
 function concluirOrdemServico(id){
   if(apiAvailable()){
-    apiConcluirOrdemServico(id).then(() => renderManutencaoList()).catch(() => alert('Não foi possível atualizar agora. Verifique sua conexão e tente novamente.'));
+    apiConcluirOrdemServico(id).then(() => { renderManutencaoList(); renderManutSemana(); }).catch(() => alert('Não foi possível atualizar agora. Verifique sua conexão e tente novamente.'));
   } else {
     const o = ordensServicoLocal.find(x => x.id === id);
     if(o) o.status = 'concluida';
     saveOrdensServicoLocal();
     renderManutencaoList();
+    renderManutSemana();
   }
+}
+function toggleNovaOrdemBox(){
+  const box = document.getElementById('novaOrdemBox');
+  const abrir = box.style.display === 'none';
+  box.style.display = abrir ? 'flex' : 'none';
+  if(abrir){
+    document.getElementById('novaOrdemCabana').innerHTML = CABANAS.map(c => '<option value="' + c + '">' + c + '</option>').join('');
+  }
+}
+function criarOrdemServicoUI(){
+  if(!isAdmin){ alert('Somente administradores podem criar ordens de serviço diretamente.'); return; }
+  const cabana = document.getElementById('novaOrdemCabana').value;
+  const descricao = document.getElementById('novaOrdemDesc').value.trim();
+  const tipo = document.getElementById('novaOrdemTipo').value;
+  const dataAgendada = document.getElementById('novaOrdemData').value;
+  if(!descricao){ alert('Informe a descrição.'); return; }
+  const registro = {cabana:cabana, reservaChave:'', reservaLabel:'', descricao:descricao, data:new Date().toLocaleString('pt-BR'), status:'aberta', tipo:tipo, dataAgendada:dataAgendada};
+  const aoTerminar = () => {
+    document.getElementById('novaOrdemDesc').value = '';
+    document.getElementById('novaOrdemData').value = '';
+    renderManutencaoList();
+    renderManutSemana();
+  };
+  if(apiAvailable()){
+    apiCriarOrdemServico(registro).then(aoTerminar).catch(() => alert('Não foi possível criar agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    ordensServicoLocal.push(Object.assign({id:'os'+Date.now()}, registro));
+    saveOrdensServicoLocal();
+    aoTerminar();
+  }
+}
+function agendarOrdemServicoUI(id){
+  if(!isAdmin) return;
+  const data = prompt('Agendar para qual data? (AAAA-MM-DD)', new Date().toISOString().slice(0,10));
+  if(!data) return;
+  if(apiAvailable()){
+    apiAgendarOrdemServico(id, data)
+      .then(() => { renderManutencaoList(); renderManutSemana(); })
+      .catch(() => alert('Não foi possível agendar agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    const o = ordensServicoLocal.find(x => x.id === id);
+    if(o) o.dataAgendada = data;
+    saveOrdensServicoLocal();
+    renderManutencaoList();
+    renderManutSemana();
+  }
+}
+
+// ---------- Programação semanal de manutenção ----------
+let manutSemanaWeekStart = mondayOf(new Date());
+function changeManutSemanaWeek(delta){ manutSemanaWeekStart.setDate(manutSemanaWeekStart.getDate() + delta*7); renderManutSemana(); }
+function manutSemanaDays(){
+  const days = [];
+  for(let i=0;i<7;i++){ const d = new Date(manutSemanaWeekStart); d.setDate(d.getDate()+i); days.push(d); }
+  return days;
+}
+function renderManutSemana(){
+  const labelEl = document.getElementById('manutSemanaWeekLabel');
+  if(!labelEl) return;
+  const days = manutSemanaDays();
+  labelEl.textContent = days[0].toLocaleDateString('pt-BR') + ' a ' + days[6].toLocaleDateString('pt-BR');
+  const lista = apiAvailable() ? ordensServicoCache : ordensServicoLocal;
+  const today = new Date();
+  const board = document.getElementById('manutSemanaBoard');
+  board.innerHTML = '';
+  days.forEach(day => {
+    const dstr = day.toISOString().slice(0,10);
+    const doDia = lista.filter(o => o.status === 'aberta' && o.dataAgendada === dstr);
+    const col = document.createElement('div');
+    col.className = 'day-col';
+    col.innerHTML = `
+      <div class="day-head ${sameDay(day, today) ? 'today' : ''}">
+        <div class="dname">${DAY_NAMES[(day.getDay()+6)%7]}</div>
+        <div class="ddate">${day.getDate().toString().padStart(2,'0')}/${(day.getMonth()+1).toString().padStart(2,'0')}</div>
+      </div>
+      <div class="section-label">Tarefas (${doDia.length})</div>
+      <div class="cards">${doDia.length ? doDia.map(o => `<div class="card" style="cursor:default;">
+        <div class="cab">${o.cabana}</div>
+        <div class="meta">${o.descricao}</div>
+        <div class="badges"><span class="badge ${o.tipo === 'emergencia' ? 'b-warn' : 'b-ok'}">${o.tipo === 'emergencia' ? 'Emergência' : 'Programada'}</span></div>
+      </div>`).join('') : '<div class="empty">Nada agendado</div>'}</div>
+    `;
+    board.appendChild(col);
+  });
 }
 
 // ---------- Painel de Pedidos de Material ----------
@@ -915,7 +1045,7 @@ function submitAdminPin(){
   if(pin.trim() === ADMIN_PIN){
     isAdmin = true;
     isFaxineira = false;
-    isColaborador = false;
+    isManutColab = false;
     closeAdminModal();
     updateAdminUI();
     if(currentDetailKey) renderDetailsBody();
@@ -950,7 +1080,7 @@ function submitFaxineiraPin(){
   if(pin.trim() === FAXINEIRA_PIN){
     isFaxineira = true;
     isAdmin = false;
-    isColaborador = false;
+    isManutColab = false;
     closeFaxineiraModal();
     updateAdminUI();
     if(currentDetailKey) renderDetailsBody();
@@ -961,68 +1091,38 @@ function submitFaxineiraPin(){
     document.getElementById('faxineiraPinInput').focus();
   }
 }
-function toggleColaborador(){
-  if(isColaborador){
-    isColaborador = false;
+function toggleManutColab(){
+  if(isManutColab){
+    isManutColab = false;
     updateAdminUI();
-    if(currentDetailKey) renderDetailsBody();
-    irModulo(activeModulo);
+    irModulo('reservas');
   } else {
-    openColaboradorModal();
+    openManutColabModal();
   }
 }
-function openColaboradorModal(){
-  document.getElementById('colaboradorError').classList.remove('show');
-  document.getElementById('colaboradorPinInput').value = '';
-  document.getElementById('colaboradorModal').style.display = 'flex';
-  document.getElementById('colaboradorPinInput').focus();
+function openManutColabModal(){
+  document.getElementById('manutColabError').classList.remove('show');
+  document.getElementById('manutColabPinInput').value = '';
+  document.getElementById('manutColabModal').style.display = 'flex';
+  document.getElementById('manutColabPinInput').focus();
 }
-function closeColaboradorModal(){
-  document.getElementById('colaboradorModal').style.display = 'none';
+function closeManutColabModal(){
+  document.getElementById('manutColabModal').style.display = 'none';
 }
-function submitColaboradorPin(){
-  const pin = document.getElementById('colaboradorPinInput').value;
-  if(pin.trim() === COLABORADOR_PIN){
-    isColaborador = true;
+function submitManutColabPin(){
+  const pin = document.getElementById('manutColabPinInput').value;
+  if(pin.trim() === MANUTENCAO_PIN){
+    isManutColab = true;
     isAdmin = false;
     isFaxineira = false;
-    closeColaboradorModal();
+    closeManutColabModal();
     updateAdminUI();
-    if(currentDetailKey) renderDetailsBody();
-    irModulo(activeModulo);
+    irModulo('manutencao');
   } else {
-    document.getElementById('colaboradorError').classList.add('show');
-    document.getElementById('colaboradorPinInput').value = '';
-    document.getElementById('colaboradorPinInput').focus();
+    document.getElementById('manutColabError').classList.add('show');
+    document.getElementById('manutColabPinInput').value = '';
+    document.getElementById('manutColabPinInput').focus();
   }
-}
-function abrirConfigColaboradorModal(){
-  document.getElementById('colabModReservas').checked = !!colaboradorPermissoes.modulos.reservas;
-  document.getElementById('colabModFaxinas').checked = !!colaboradorPermissoes.modulos.faxinas;
-  document.getElementById('colabModManutencao').checked = !!colaboradorPermissoes.modulos.manutencao;
-  document.getElementById('colabNivel').value = colaboradorPermissoes.nivel || 'completo';
-  document.getElementById('configColaboradorModal').style.display = 'flex';
-}
-function closeConfigColaboradorModal(){
-  document.getElementById('configColaboradorModal').style.display = 'none';
-}
-function salvarConfigColaborador(){
-  colaboradorPermissoes = {
-    modulos: {
-      reservas: document.getElementById('colabModReservas').checked,
-      faxinas: document.getElementById('colabModFaxinas').checked,
-      manutencao: document.getElementById('colabModManutencao').checked
-    },
-    nivel: document.getElementById('colabNivel').value
-  };
-  if(apiAvailable()){
-    apiSalvarConfig('colaboradorPermissoes', JSON.stringify(colaboradorPermissoes))
-      .catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
-  } else {
-    localStorage.setItem('painelColaboradorPermissoes', JSON.stringify(colaboradorPermissoes));
-  }
-  closeConfigColaboradorModal();
-  updateSidebarUI();
 }
 function updateAdminUI(){
   document.getElementById('importSection').style.display = isAdmin ? 'block' : 'none';
@@ -1032,26 +1132,24 @@ function updateAdminUI(){
   btn.classList.toggle('is-active', isAdmin);
   document.getElementById('stockBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('productsBtn').style.display = isAdmin ? 'inline-block' : 'none';
-  document.getElementById('configColabBtn').style.display = isAdmin ? 'inline-block' : 'none';
   const fbtn = document.getElementById('faxineiraToggleBtn');
-  fbtn.textContent = isFaxineira ? '🧹 Faxineira (clique para sair)' : '🧹 Entrar como faxineira';
+  fbtn.textContent = isFaxineira ? '🧹 Colaborador da Limpeza (clique para sair)' : '🧹 Entrar como colaborador da limpeza';
   fbtn.classList.toggle('is-active', isFaxineira);
-  const cbtn = document.getElementById('colaboradorToggleBtn');
-  cbtn.textContent = isColaborador ? '🧑‍💼 Colaborador (clique para sair)' : '🧑‍💼 Entrar como colaborador';
-  cbtn.classList.toggle('is-active', isColaborador);
+  const mbtn = document.getElementById('manutColabToggleBtn');
+  mbtn.textContent = isManutColab ? '🔧 Colaborador de manutenção (clique para sair)' : '🔧 Entrar como colaborador de manutenção';
+  mbtn.classList.toggle('is-active', isManutColab);
   updateSidebarUI();
 }
-function isOperador(){ return isAdmin || isFaxineira || isColaborador; }
+function isOperador(){ return isAdmin || isFaxineira; }
 function hideFinance(){
   if(isAdmin) return false;
   if(isFaxineira) return true;
-  if(isColaborador) return colaboradorPermissoes.nivel === 'limitado';
   return false;
 }
 function updateSidebarUI(){
-  const podeReservas = isAdmin || isFaxineira || !isColaborador || colaboradorPermissoes.modulos.reservas;
-  const podeFaxinas = isAdmin || isFaxineira || (isColaborador && colaboradorPermissoes.modulos.faxinas);
-  const podeManutencao = isAdmin || (isColaborador && colaboradorPermissoes.modulos.manutencao);
+  const podeReservas = !isManutColab;
+  const podeFaxinas = isAdmin || isFaxineira;
+  const podeManutencao = isAdmin || isManutColab;
   document.getElementById('navReservasBtn').style.display = podeReservas ? 'block' : 'none';
   document.getElementById('navFaxinasBtn').style.display = podeFaxinas ? 'block' : 'none';
   document.getElementById('navManutencaoBtn').style.display = podeManutencao ? 'block' : 'none';
@@ -1070,13 +1168,14 @@ function irModulo(mod){
   if(btn) btn.classList.add('on');
   if(mod === 'reservas') render();
   else if(mod === 'faxinas') renderFaxinasList();
-  else if(mod === 'manutencao'){ renderManutencaoList(); renderMateriaisList(); }
+  else if(mod === 'manutencao'){ renderManutencaoList(); renderMateriaisList(); renderManutSemana(); }
 }
 function irManutTab(tab){
   document.querySelectorAll('.manut-tab').forEach(t => t.classList.remove('on'));
   document.querySelectorAll('.subtab').forEach(t => t.classList.remove('on'));
   document.getElementById('manutTab-' + tab).classList.add('on');
   document.getElementById('manutTabBtn-' + tab).classList.add('on');
+  if(tab === 'semana') renderManutSemana();
 }
 
 // ---------- Utilitários ----------
@@ -1355,7 +1454,7 @@ function marcarFaxinaExecutada(key, labelEncoded, cabanaEncoded){
   const registro = Object.assign({}, atual, {
     reservaChave: key, reservaLabel: label || key, cabana: cabana || '',
     dataExecucao: hoje, executadoPor: executadoPor,
-    valor: valorFaxinaPadrao, pago: false, dataPagamento: ''
+    valor: valorFaxinaPorCabana(cabana), pago: false, dataPagamento: ''
   });
   if(apiAvailable()){
     apiSalvarFaxina(registro)
@@ -1392,7 +1491,7 @@ function solicitarManutencao(key, labelEncoded, cabanaEncoded){
   const cabana = decodeURIComponent(cabanaEncoded);
   const descricao = prompt('Descreva o que precisa de manutenção:', '');
   if(!descricao) return;
-  const registro = {cabana:cabana, reservaChave:key, reservaLabel:label, descricao:descricao, data:new Date().toLocaleString('pt-BR'), status:'aberta'};
+  const registro = {cabana:cabana, reservaChave:key, reservaLabel:label, descricao:descricao, data:new Date().toLocaleString('pt-BR'), status:'aberta', tipo:'emergencia', dataAgendada:''};
   if(apiAvailable()){
     apiCriarOrdemServico(registro)
       .then(() => alert('Solicitação de manutenção registrada.'))
@@ -1466,7 +1565,7 @@ function renderDetailsBody(){
       <input type="number" id="fbValor" placeholder="Valor unit. (R$)" step="0.01" style="width:110px">
       <button onclick="addFrigobarItem()">Adicionar</button>
     </div>
-  ` : `<p class="empty">Somente administradores, faxineira ou colaboradores autorizados podem lançar consumo de frigobar.</p>`;
+  ` : `<p class="empty">Somente administradores ou o colaborador da limpeza podem lançar consumo de frigobar.</p>`;
   const syncNote = apiAvailable()
     ? '<span class="sync-note">(sincronizado entre todos os dispositivos)</span>'
     : '<span class="sync-note">(salvo apenas neste navegador — veja o README para sincronizar)</span>';
@@ -1480,7 +1579,7 @@ function renderDetailsBody(){
     <label>🧹 Faxina ${syncNote}</label>
     <p style="margin:4px 0;">
       ${fx && fx.dataExecucao
-        ? 'Executada em <strong>' + fx.dataExecucao + '</strong>' + (fx.executadoPor ? ' por ' + fx.executadoPor : '') + (isAdmin ? ' · valor: ' + fmtMoney(Number(fx.valor)||0) + (fx.pago ? ' (pago)' : ' (pendente de pagamento)') : '')
+        ? 'Executada em <strong>' + fx.dataExecucao + '</strong>' + (fx.executadoPor ? ' por ' + fx.executadoPor : '') + (podeVerFinanceiroFaxina() ? ' · valor: ' + fmtMoney(Number(fx.valor)||0) + (fx.pago ? ' (pago)' : ' (pendente de pagamento)') : '')
         : '<span class="empty" style="padding:0;">Faxina ainda pendente.</span>'}
     </p>
     ${isOperador() ? `
@@ -1563,7 +1662,7 @@ function clearFbForm(){
   document.getElementById('fbItemPreset').value = '';
 }
 function addFrigobarItem(){
-  if(!isOperador()){ alert('Somente administradores, faxineira ou colaboradores autorizados podem lançar consumo de frigobar.'); return; }
+  if(!isOperador()){ alert('Somente administradores ou o colaborador da limpeza podem lançar consumo de frigobar.'); return; }
   if(!currentDetailKey){ alert('Selecione uma reserva primeiro.'); return; }
   const desc = document.getElementById('fbDesc').value.trim();
   const valor = parseFloat(document.getElementById('fbValor').value);

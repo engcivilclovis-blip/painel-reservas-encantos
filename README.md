@@ -33,51 +33,52 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 
 O painel é organizado em três módulos, acessíveis pela barra lateral esquerda:
 
-- **📋 Reservas** — o calendário semanal, sempre visível para qualquer pessoa.
-- **🧹 Faxinas** — o calendário de faxinas (veja seção abaixo). Visível para administrador, faxineira e colaboradores autorizados.
-- **🔧 Manutenção** — ordens de serviço e pedidos de material, em abas dentro do módulo. Visível só para administrador e colaboradores autorizados.
+- **📋 Reservas** — o calendário semanal, sempre visível para qualquer pessoa (exceto o colaborador de manutenção, que não vê reservas).
+- **🧹 Faxinas** — o calendário de faxinas (veja seção abaixo). Visível para administrador e colaborador da limpeza.
+- **🔧 Manutenção** — ordens de serviço, materiais e programação semanal, em abas dentro do módulo. Visível para administrador e colaborador de manutenção.
 
-Cada módulo só aparece na barra lateral para quem tem permissão de vê-lo; quem não tem acesso a nenhum módulo além de Reservas simplesmente não vê os outros botões.
+Cada módulo só aparece na barra lateral para quem tem permissão de vê-lo.
 
 ## Papéis de acesso
 
 - **Sem login**: qualquer pessoa que abrir o link vê o calendário completo (módulo Reservas), navega entre semanas e pode **escrever observações** em qualquer reserva (toalhas, arrumação, pedidos especiais) — sincronizadas entre todos os dispositivos quando a API estiver configurada (veja abaixo). Também vê a barra de estoque de frigobar (se a sincronização estiver configurada).
-- **Administrador**: clicando em "🔒 Entrar como administrador" e digitando o código, libera acesso a todos os módulos e:
+- **Administrador** ("🔒 Entrar como administrador"): acesso a todos os módulos e:
   - Importar/colar CSV manualmente dentro do próprio painel (além do fluxo normal via GitHub).
   - Lançar e remover itens de consumo de frigobar por reserva.
   - Registrar reabastecimento de estoque (botão "📦 Estoque de frigobar", só aparece com a sincronização configurada).
   - Cadastrar, editar e remover produtos do catálogo de frigobar (botão "🧾 Produtos do frigobar").
-  - Ver e controlar o pagamento das faxinas, e resolver ordens de serviço/pedidos de material.
-  - Configurar o acesso do colaborador (botão "⚙️ Configurar colaborador" — veja abaixo).
-- **Faxineira**: clicando em "🧹 Entrar como faxineira" e digitando o código próprio, libera os módulos Reservas e Faxinas sem nenhum dado financeiro (sem saldo da reserva, sem "a cobrar"), mas com:
-  - Ver todas as entradas e saídas normalmente.
-  - Lançar consumo de frigobar por reserva e gerar a fatura de fechamento (mostra só o total do frigobar a cobrar, sem o saldo da reserva).
-  - Marcar a faxina de uma reserva como executada (dentro de "Ver detalhes da reserva").
-- **Colaborador**: clicando em "🧑‍💼 Entrar como colaborador" e digitando o código próprio, libera **exatamente o que o administrador configurou** para esse código — nem mais, nem menos.
+  - Ver e controlar o pagamento das faxinas; definir os valores de faxina; criar/agendar/concluir ordens de serviço e concluir pedidos de material.
+- **Colaborador da limpeza** ("🧹 Entrar como colaborador da limpeza"): libera os módulos Reservas e Faxinas. **Não vê os dados financeiros das reservas** (saldo, "a cobrar"), mas **vê o valor das faxinas** (para saber quanto vai receber). Pode:
+  - Ver todas as entradas e saídas.
+  - Lançar consumo de frigobar por reserva e gerar a fatura de fechamento (só o total do frigobar, sem o saldo da reserva).
+  - Marcar a faxina de uma reserva como executada; escrever observações de manutenção; solicitar manutenção e material.
+  - Ver o valor de cada faxina e o saldo a receber (mas não pode alterar os valores — só o administrador define).
+- **Colaborador de manutenção** ("🔧 Entrar como colaborador de manutenção"): libera **apenas o módulo Manutenção**, sem nenhum dado financeiro em lugar nenhum (não vê reservas, frigobar nem valores de faxina). Recebe as demandas geradas pela limpeza e pelo administrador, e marca cada uma como concluída.
 
-### Configurar o colaborador
+## Valores de faxina por tipo de unidade
 
-O administrador usa o botão **"⚙️ Configurar colaborador"** para escolher:
-
-- **Quais módulos** ficam liberados (Reservas / Faxinas / Manutenção), com caixas de seleção independentes.
-- O **nível de acesso**: "Completo" (vê valores financeiros normalmente) ou "Limitado" (mesmo comportamento da faxineira — sem saldo, sem "a cobrar").
-
-Essa configuração é única (um só código de colaborador) e vale para qualquer pessoa que entrar com esse código — para dar acessos diferentes a pessoas diferentes, é preciso trocar a configuração antes de repassar o código a cada uma, ou combinar com elas horários diferentes de uso. A configuração fica salva na planilha (aba Config, chave `colaboradorPermissoes`) quando a sincronização estiver ativa, então vale para todos os dispositivos.
+No topo do módulo Faxinas, o administrador define dois valores: um para **cabanas** e outro para **containers/studios**. Quando uma faxina é marcada como executada, o sistema escolhe automaticamente o valor certo pelo tipo da unidade (qualquer unidade cujo nome começa com "CONTAINER" usa o valor de container; as demais usam o valor de cabana). O colaborador da limpeza vê esses valores, mas só o administrador pode alterá-los.
 
 ## Controle de faxinas
 
-- Toda reserva com data de check-out aparece com o badge **"🧹 Faxina pendente"** até alguém marcar como executada. Dentro de "Ver detalhes de uma reserva", o botão **"Marcar faxina como executada"** (visível para administrador, faxineira e colaboradores autorizados) registra a data e, opcionalmente, quem executou.
-- O módulo **"🧹 Faxinas"** na barra lateral abre um **calendário em colunas por dia** — igual ao quadro de reservas — mostrando as cabanas/containers que precisam de faxina em cada dia de check-out. Clique em qualquer card para abrir os detalhes daquela faxina. Use "« Semana anterior" / "Próxima semana »" para navegar. Quem tem acesso financeiro completo vê também valor e se já foi paga; quem está no nível limitado não vê esses dados.
+- Toda reserva com data de check-out aparece com o badge **"🧹 Faxina pendente"** até alguém marcar como executada. Dentro de "Ver detalhes de uma reserva", o botão **"Marcar faxina como executada"** (administrador e colaborador da limpeza) registra a data e, opcionalmente, quem executou.
+- O módulo **"🧹 Faxinas"** na barra lateral abre um **calendário em colunas por dia** — igual ao quadro de reservas — mostrando as cabanas/containers que precisam de faxina em cada dia de check-out. Clique em qualquer card para abrir os detalhes daquela faxina.
 - Dentro da seção "🧹 Faxina" dos detalhes de uma reserva, além de marcar como executada, é possível:
   - Escrever **observações de manutenção** (ex.: "torneira pingando"), sincronizadas junto com a faxina.
-  - **"🔧 Solicitar manutenção"** — registra um pedido de manutenção para aquela cabana (visível na aba "Ordens de Serviço" do módulo "🔧 Manutenção").
+  - **"🔧 Solicitar manutenção"** — registra uma ordem de serviço para aquela cabana (visível na aba "Ordens de Serviço" do módulo "🔧 Manutenção"). Solicitações vindas da limpeza entram como **emergência**.
   - **"📦 Solicitar material"** — registra um pedido de material/reposição (ex.: prato quebrado), visível na aba "Materiais" do módulo "🔧 Manutenção".
-- O administrador marca cada solicitação de manutenção ou material como concluída na respectiva aba.
-- No topo do módulo Faxinas (para quem tem acesso financeiro completo), mostra o **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas) e permite marcar cada uma como paga (registra a data do pagamento). O valor padrão por faxina também é configurável ali.
+- No topo do módulo Faxinas, o administrador e o colaborador da limpeza veem o **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas). Só o administrador pode marcar cada faxina como paga (registra a data do pagamento).
+
+## Módulo de Manutenção
+
+- **Resumo** no topo: quantas ordens estão abertas, quantas são emergência, quantas programadas e quantas já foram concluídas.
+- Aba **"🔧 Ordens de Serviço"**: lista todas as ordens (com tipo emergência/programada, data agendada e status). O administrador pode criar uma ordem direto ("+ Nova Ordem de Serviço") escolhendo cabana, descrição, tipo (emergência ou programada) e data agendada; e também agendar/concluir ordens existentes. O colaborador de manutenção vê e conclui as ordens.
+- Aba **"📦 Materiais"**: lista os pedidos de material/reposição, com botão para marcar como concluído.
+- Aba **"📅 Programação Semanal"**: um quadro dia a dia (como o de reservas) mostrando as ordens **agendadas** de cada dia da semana — a "agenda" das tarefas de manutenção pendentes. Navega por semana.
 
 ### ⚠️ Importante sobre o código de administrador
 
-O código fica definido na constante `ADMIN_PIN` dentro do `<script>` de `index.html` (procure por `const ADMIN_PIN = ...`). O código da faxineira fica na constante `FAXINEIRA_PIN` e o do colaborador na constante `COLABORADOR_PIN`, logo abaixo. **Troque os três valores antes de publicar.**
+Os códigos ficam definidos no `<script>` de `index.html`: `ADMIN_PIN` (administrador), `FAXINEIRA_PIN` (colaborador da limpeza) e `MANUTENCAO_PIN` (colaborador de manutenção). **Troque os três valores antes de publicar.**
 
 Isso **não é uma senha de verdade** — como o site é público e estático, qualquer pessoa que abrir "Ver código-fonte da página" no navegador consegue ler esse valor. Serve apenas para evitar que alguém sem intenção de editar clique e mexa por engano nos dados. Não use para proteger informações sensíveis.
 
@@ -115,9 +116,9 @@ O script cria oito abas sozinho na primeira vez que for usado:
 - **Observacoes**: uma linha por reserva com a observação atual e quando foi atualizada pela última vez.
 - **Produtos**: uma linha por produto do catálogo de frigobar (nome e preço), editável pelo administrador direto no painel (botão "🧾 Produtos do frigobar") ou diretamente na planilha.
 - **Faxinas**: uma linha por reserva com faxina marcada como executada (cabana, data de execução, quem executou, valor, se já foi paga, data do pagamento e observações de manutenção).
-- **Config**: pares chave/valor genéricos; hoje guarda só `valorFaxina` (valor padrão pago por faxina), editável no painel "🧹 Faxinas".
-- **OrdensServico**: cada solicitação de manutenção feita pela faxineira ou administrador (cabana, descrição, data, status aberta/concluída), visível no painel "🔧 Manutenção".
-- **PedidosMaterial**: cada solicitação de material/reposição (cabana, descrição, data, status aberto/concluído), visível no painel "📦 Materiais".
+- **Config**: pares chave/valor genéricos; hoje guarda `valorFaxinaCabana` e `valorFaxinaContainer` (valores pagos por faxina, por tipo de unidade), editáveis no módulo "🧹 Faxinas".
+- **OrdensServico**: cada ordem de serviço de manutenção (cabana, descrição, tipo emergência/programada, data agendada, data de criação, status aberta/concluída), criada pela limpeza ou pelo administrador, visível no módulo "🔧 Manutenção".
+- **PedidosMaterial**: cada solicitação de material/reposição (cabana, descrição, data, status aberto/concluído), visível na aba "📦 Materiais".
 
 ### Sobre o código-fonte da API (`apps-script/Code.gs`)
 

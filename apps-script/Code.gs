@@ -29,7 +29,7 @@ function getSheet_(name){
     if(name === SHEET_PRODUTOS) sh.appendRow(['Nome','Preco']);
     if(name === SHEET_FAXINAS) sh.appendRow(['ReservaChave','ReservaLabel','Cabana','DataExecucao','ExecutadoPor','Valor','Pago','DataPagamento','ObsManutencao']);
     if(name === SHEET_CONFIG) sh.appendRow(['Chave','Valor']);
-    if(name === SHEET_ORDENS_SERVICO) sh.appendRow(['ID','Timestamp','Cabana','ReservaChave','ReservaLabel','Descricao','Status']);
+    if(name === SHEET_ORDENS_SERVICO) sh.appendRow(['ID','Timestamp','Cabana','ReservaChave','ReservaLabel','Descricao','Status','Tipo','DataAgendada']);
     if(name === SHEET_PEDIDOS_MATERIAL) sh.appendRow(['ID','Timestamp','Cabana','ReservaChave','ReservaLabel','Descricao','Status']);
   }
   return sh;
@@ -89,6 +89,8 @@ function doPost(e){
     result = criarOrdemServico_(body);
   } else if(body.action === 'concluirOrdemServico'){
     result = concluirOrdemServico_(body.id);
+  } else if(body.action === 'agendarOrdemServico'){
+    result = agendarOrdemServico_(body.id, body.dataAgendada);
   } else if(body.action === 'criarPedidoMaterial'){
     result = criarPedidoMaterial_(body);
   } else if(body.action === 'concluirPedidoMaterial'){
@@ -327,7 +329,7 @@ function getOrdensServico_(){
   var out = [];
   for(var i=1;i<data.length;i++){
     if(!data[i][0]) continue;
-    out.push({id:data[i][0], data:data[i][1], cabana:data[i][2], reservaChave:data[i][3], reservaLabel:data[i][4], descricao:data[i][5], status:data[i][6]});
+    out.push({id:data[i][0], data:data[i][1], cabana:data[i][2], reservaChave:data[i][3], reservaLabel:data[i][4], descricao:data[i][5], status:data[i][6], tipo:data[i][7]||'emergencia', dataAgendada:data[i][8]||''});
   }
   return out;
 }
@@ -335,7 +337,7 @@ function getOrdensServico_(){
 function criarOrdemServico_(body){
   var sh = getSheet_(SHEET_ORDENS_SERVICO);
   var id = Utilities.getUuid();
-  sh.appendRow([id, body.data || new Date().toLocaleString('pt-BR'), body.cabana||'', body.reservaChave||'', body.reservaLabel||'', body.descricao||'', 'aberta']);
+  sh.appendRow([id, body.data || new Date().toLocaleString('pt-BR'), body.cabana||'', body.reservaChave||'', body.reservaLabel||'', body.descricao||'', 'aberta', body.tipo||'emergencia', body.dataAgendada||'']);
   return {ok:true, id:id};
 }
 
@@ -345,6 +347,18 @@ function concluirOrdemServico_(id){
   for(var i=1;i<data.length;i++){
     if(data[i][0] === id){
       sh.getRange(i+1,7).setValue('concluida');
+      return {ok:true};
+    }
+  }
+  return {ok:false, error:'ordem de serviço não encontrada'};
+}
+
+function agendarOrdemServico_(id, dataAgendada){
+  var sh = getSheet_(SHEET_ORDENS_SERVICO);
+  var data = sh.getDataRange().getValues();
+  for(var i=1;i<data.length;i++){
+    if(data[i][0] === id){
+      sh.getRange(i+1,9).setValue(dataAgendada||'');
       return {ok:true};
     }
   }
