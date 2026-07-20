@@ -770,7 +770,10 @@ function todasFaxinas(){
     };
   }).sort((a,b) => (b.checkout||0) - (a.checkout||0));
 }
+// Vê o VALOR da faxina (quanto vale): admin + colaborador da limpeza.
 function podeVerFinanceiroFaxina(){ return isAdmin || isFaxineira; }
+// Vê/registra PAGAMENTO (pago, forma, data, saldo): somente admin, para evitar fraude na cobrança.
+function podeVerPagamento(){ return isAdmin; }
 function renderFaxinasList(){
   document.getElementById('valorFaxinaBox').style.display = podeVerFinanceiroFaxina() ? 'flex' : 'none';
   const cabInput = document.getElementById('valorFaxinaCabanaInput');
@@ -781,7 +784,7 @@ function renderFaxinasList(){
   contInput.readOnly = !isAdmin;
   const todas = todasFaxinas();
   const saldoAPagar = todas.filter(f => f.dataExecucao && !f.pago).reduce((s,f) => s + f.valor, 0);
-  document.getElementById('faxinasSaldoBox').innerHTML = podeVerFinanceiroFaxina()
+  document.getElementById('faxinasSaldoBox').innerHTML = podeVerPagamento()
     ? '<strong>Saldo a pagar (faxinas concluídas e não pagas): ' + fmtMoney(saldoAPagar) + '</strong>'
     : '';
   const days = faxinasDays();
@@ -807,7 +810,10 @@ function renderFaxinasList(){
 }
 function faxinaCardHtml(f){
   const statusBadge = f.dataExecucao ? '<span class="badge b-ok">🧹 Concluída</span>' : '<span class="badge b-warn">🧹 Pendente</span>';
-  const financeiro = (podeVerFinanceiroFaxina() && f.dataExecucao) ? '<div class="meta">Valor: ' + fmtMoney(f.valor) + ' · ' + (f.pago ? 'Pago' : 'Não pago') + '</div>' : '';
+  let financeiro = '';
+  if(f.dataExecucao && podeVerFinanceiroFaxina()){
+    financeiro = '<div class="meta">Valor: ' + fmtMoney(f.valor) + (podeVerPagamento() ? ' · ' + (f.pago ? 'Pago' : 'Não pago') : '') + '</div>';
+  }
   return `<div class="card" onclick="abrirFaxinaDetalhe('${f.key}')" title="Clique para ver detalhes desta faxina">
     <div class="cab">${f.cabana}</div>
     <div class="meta">${f.hospede}</div>
@@ -819,9 +825,18 @@ function abrirFaxinaDetalhe(key){
   openDetailsModal(key);
 }
 function marcarFaxinaPaga(key){
+  if(!isAdmin){ alert('Somente o administrador pode registrar pagamentos.'); return; }
   const fx = faxinaStatus(key);
   if(!fx || !fx.dataExecucao){ alert('Esta faxina ainda não foi executada.'); return; }
-  const registro = Object.assign({}, fx, {reservaChave:key, pago:true, dataPagamento:new Date().toLocaleDateString('pt-BR')});
+  const forma = prompt('Forma de pagamento (ex.: Dinheiro, PIX, Transferência):', 'PIX');
+  if(forma === null) return;
+  const dataInformada = prompt('Data do pagamento (DD/MM/AAAA):', new Date().toLocaleDateString('pt-BR'));
+  if(dataInformada === null) return;
+  const registro = Object.assign({}, fx, {
+    reservaChave:key, pago:true,
+    dataPagamento: (dataInformada.trim() || new Date().toLocaleDateString('pt-BR')),
+    formaPagamento: (forma.trim() || '-')
+  });
   if(apiAvailable()){
     apiSalvarFaxina(registro)
       .then(() => { refreshFrigobarCache(); })
@@ -1579,11 +1594,14 @@ function renderDetailsBody(){
     <label>🧹 Faxina ${syncNote}</label>
     <p style="margin:4px 0;">
       ${fx && fx.dataExecucao
-        ? 'Executada em <strong>' + fx.dataExecucao + '</strong>' + (fx.executadoPor ? ' por ' + fx.executadoPor : '') + (podeVerFinanceiroFaxina() ? ' · valor: ' + fmtMoney(Number(fx.valor)||0) + (fx.pago ? ' (pago)' : ' (pendente de pagamento)') : '')
+        ? 'Executada em <strong>' + fx.dataExecucao + '</strong>' + (fx.executadoPor ? ' por ' + fx.executadoPor : '')
+            + (podeVerFinanceiroFaxina() ? ' · valor: ' + fmtMoney(Number(fx.valor)||0) : '')
+            + (podeVerPagamento() ? (fx.pago ? ' (pago em ' + (fx.dataPagamento||'?') + (fx.formaPagamento ? ' via ' + fx.formaPagamento : '') + ')' : ' (pendente de pagamento)') : '')
         : '<span class="empty" style="padding:0;">Faxina ainda pendente.</span>'}
     </p>
     ${isOperador() ? `
       <button class="secondary mini" onclick="marcarFaxinaExecutada('${currentDetailKey}', '${encodeURIComponent(label0)}', '${encodeURIComponent(cabana0)}')">Marcar faxina como executada</button>
+      ${(isAdmin && fx && fx.dataExecucao && !fx.pago) ? `<button class="mini" onclick="marcarFaxinaPaga('${currentDetailKey}')">💳 Registrar pagamento</button>` : ''}
       <textarea id="obsManutText" class="obs-textarea" style="height:50px;margin-top:8px;" placeholder="Observações de manutenção (ex.: prato quebrado, torneira pingando...)">${(fx && fx.obsManutencao) || ''}</textarea>
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
         <button class="secondary mini" onclick="solicitarManutencao('${currentDetailKey}', '${encodeURIComponent(label0)}', '${encodeURIComponent(cabana0)}')">🔧 Solicitar manutenção</button>

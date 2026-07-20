@@ -67,7 +67,10 @@ No topo do módulo Faxinas, o administrador define dois valores: um para **caban
   - Escrever **observações de manutenção** (ex.: "torneira pingando"), sincronizadas junto com a faxina.
   - **"🔧 Solicitar manutenção"** — registra uma ordem de serviço para aquela cabana (visível na aba "Ordens de Serviço" do módulo "🔧 Manutenção"). Solicitações vindas da limpeza entram como **emergência**.
   - **"📦 Solicitar material"** — registra um pedido de material/reposição (ex.: prato quebrado), visível na aba "Materiais" do módulo "🔧 Manutenção".
-- No topo do módulo Faxinas, o administrador e o colaborador da limpeza veem o **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas). Só o administrador pode marcar cada faxina como paga (registra a data do pagamento).
+- **Confirmação da faxina (execução):** tanto o **colaborador da limpeza** quanto o **administrador** podem marcar uma faxina como executada.
+- **Valor da faxina:** o colaborador da limpeza **vê** o valor de cada faxina (para saber quanto vai receber), mas **não vê nem registra pagamento** (nem status, nem forma, nem data, nem saldo) — isso fica **só com o administrador**, para evitar risco de fraude na cobrança.
+- **Registro de pagamento (só administrador):** ao clicar em **"💳 Registrar pagamento"** (nos detalhes da reserva) ou **"Marcar pago"** (no calendário de faxinas), o administrador informa a **forma de pagamento** (ex.: Dinheiro, PIX, Transferência) e a **data**. Fica registrado, por exemplo: *"pago em 19/07/2026 via PIX"*.
+- O **saldo total a pagar** (soma das faxinas concluídas e ainda não pagas) aparece no topo do módulo Faxinas **somente para o administrador**.
 
 ## Módulo de Manutenção
 

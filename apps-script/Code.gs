@@ -27,7 +27,7 @@ function getSheet_(name){
     if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Cabana','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel']);
     if(name === SHEET_OBSERVACOES) sh.appendRow(['ReservaChave','ReservaLabel','Observacao','AtualizadoEm']);
     if(name === SHEET_PRODUTOS) sh.appendRow(['Nome','Preco']);
-    if(name === SHEET_FAXINAS) sh.appendRow(['ReservaChave','ReservaLabel','Cabana','DataExecucao','ExecutadoPor','Valor','Pago','DataPagamento','ObsManutencao']);
+    if(name === SHEET_FAXINAS) sh.appendRow(['ReservaChave','ReservaLabel','Cabana','DataExecucao','ExecutadoPor','Valor','Pago','DataPagamento','ObsManutencao','FormaPagamento']);
     if(name === SHEET_CONFIG) sh.appendRow(['Chave','Valor']);
     if(name === SHEET_ORDENS_SERVICO) sh.appendRow(['ID','Timestamp','Cabana','ReservaChave','ReservaLabel','Descricao','Status','Tipo','DataAgendada']);
     if(name === SHEET_PEDIDOS_MATERIAL) sh.appendRow(['ID','Timestamp','Cabana','ReservaChave','ReservaLabel','Descricao','Status']);
@@ -268,7 +268,7 @@ function getFaxinas_(){
       reservaChave: data[i][0], reservaLabel: data[i][1], cabana: data[i][2],
       dataExecucao: data[i][3], executadoPor: data[i][4],
       valor: Number(data[i][5])||0, pago: data[i][6] === true || data[i][6] === 'TRUE' || data[i][6] === 'true',
-      dataPagamento: data[i][7], obsManutencao: data[i][8]||''
+      dataPagamento: data[i][7], obsManutencao: data[i][8]||'', formaPagamento: data[i][9]||''
     });
   }
   return out;
@@ -285,7 +285,7 @@ function findFaxinaRow_(sh, chave){
 function salvarFaxina_(body){
   var sh = getSheet_(SHEET_FAXINAS);
   var row = findFaxinaRow_(sh, body.reservaChave);
-  var linha = [body.reservaChave, body.reservaLabel||'', body.cabana||'', body.dataExecucao||'', body.executadoPor||'', Number(body.valor)||0, !!body.pago, body.dataPagamento||'', body.obsManutencao||''];
+  var linha = [body.reservaChave, body.reservaLabel||'', body.cabana||'', body.dataExecucao||'', body.executadoPor||'', Number(body.valor)||0, !!body.pago, body.dataPagamento||'', body.obsManutencao||'', body.formaPagamento||''];
   if(row === -1){
     sh.appendRow(linha);
   } else {
