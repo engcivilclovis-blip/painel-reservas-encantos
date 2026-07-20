@@ -4,7 +4,7 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 
 ## Como funciona
 
-- `index.html` é a página inteira (HTML + CSS + JS, sem dependências externas além de fontes do Google Fonts).
+- `index.html` é a página inteira (HTML + CSS + JS). As únicas dependências externas são as fontes do Google Fonts e um gerador de QR Code (CDN), usado só para o QR do PIX na fatura.
 - `data/reservas.csv` é a planilha de reservas exportada do FazReservas. A página busca esse arquivo automaticamente ao abrir — **qualquer pessoa que acessar o link vê os mesmos dados**, sem precisar importar nada manualmente.
 
 ## Atualizar os dados (rotina diária, sem terminal)
@@ -20,8 +20,14 @@ Painel estático (HTML puro, sem servidor) para consulta semanal de reservas: ch
 - Além da navegação semana a semana ("« Semana anterior" / "Próxima semana »"), é possível escolher um período qualquer preenchendo **De** / **Até** na barra de ferramentas e clicando em **"Aplicar intervalo"**. O botão **"Voltar à semana"** aparece para desfazer e retornar à navegação normal.
 - **"🖨️ Imprimir período (PDF)"** abre a caixa de impressão do navegador (Ctrl+P) já formatada em A4 paisagem com a lista de entradas/saídas do período exibido — escolha "Salvar como PDF" no destino da impressão para gerar o arquivo.
 - **"🍽️ Cardápio"** imprime a lista de produtos do frigobar com preços, em A4 retrato — útil para deixar impresso nas cabanas/containers.
-- Dentro de **"Ver detalhes de uma reserva"**, o botão **"🖨️ Imprimir fatura"** (ao lado de "Consumo de frigobar") gera a fatura de fechamento daquela reserva: itens consumidos, saldo da reserva e total a pagar — para entregar ao hóspede na saída.
-- Em todos os casos o conteúdo impresso é gerado dinamicamente e enviado direto para o diálogo de impressão do navegador; não é necessária nenhuma biblioteca externa de PDF.
+- Dentro de **"Ver detalhes de uma reserva"**, o botão **"🖨️ Imprimir fatura"** (ao lado de "Consumo de frigobar") gera a fatura de fechamento daquela reserva: itens consumidos, saldo da reserva e total a pagar — para entregar ao hóspede na saída. Se a **chave PIX** estiver configurada (veja abaixo), a fatura já sai com um **QR Code PIX** (com o valor a pagar) e o "PIX copia e cola".
+- Em todos os casos o conteúdo impresso é gerado dinamicamente e enviado direto para o diálogo de impressão do navegador (a única biblioteca externa é o gerador de QR Code, carregado via CDN; sem internet, a fatura ainda mostra a chave PIX em texto).
+
+## Cobrança por PIX (QR Code na fatura)
+
+- O administrador clica em **"💳 Dados PIX (cobrança)"** e informa a **chave PIX**, o **nome do beneficiário** (como no banco) e a **cidade**. Fica salvo na planilha (aba Config) e sincroniza entre dispositivos.
+- A partir daí, toda **fatura de fechamento do frigobar** ("🖨️ Imprimir fatura") sai com o **QR Code PIX** já no valor a cobrar, além da chave e do "PIX copia e cola" — o hóspede aponta a câmera e paga.
+- O QR Code é gerado no próprio navegador (padrão PIX/EMV do Banco Central), sem enviar seus dados para lugar nenhum.
 
 ## Filtro de acomodações exibidas
 

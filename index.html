@@ -6,6 +6,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+<!-- Gerador de QR Code (para o PIX na fatura). Se ficar sem internet, a fatura ainda mostra a chave PIX em texto. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
   :root{
     --brand-terra:#884D2F; --brand-gold:#DCB188; --brand-gold-deep:#A9713F; --brand-charcoal:#2B2B2A; --brand-cream:#E2DDD5;
@@ -215,6 +217,7 @@
     <button class="btn-admin" id="manutColabToggleBtn" onclick="toggleManutColab()">🔧 Entrar como colaborador de manutenção</button>
     <button class="btn-details" id="stockBtn" onclick="openStockModal()" style="display:none;">📦 Estoque de frigobar</button>
     <button class="btn-details" id="productsBtn" onclick="openProductsModal()" style="display:none;">🧾 Produtos do frigobar</button>
+    <button class="btn-details" id="pixBtn" onclick="openPixModal()" style="display:none;">💳 Dados PIX (cobrança)</button>
   </div>
 </div>
 
@@ -291,6 +294,23 @@
       <div class="admin-error" id="manutColabError">Código incorreto. Tente novamente.</div>
       <button type="submit">Entrar</button>
     </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="pixModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>💳 Dados PIX para cobrança</h2>
+      <button class="secondary" onclick="closePixModal()">Fechar</button>
+    </div>
+    <p style="font-size:13px;color:#5a5049;">A chave PIX abaixo é usada para gerar o QR Code de pagamento na fatura de fechamento do frigobar.</p>
+    <label for="pixKeyInput">Chave PIX</label>
+    <input type="text" id="pixKeyInput" placeholder="CPF, CNPJ, e-mail, celular ou chave aleatória" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+    <label for="pixNomeInput">Nome do beneficiário (como no banco)</label>
+    <input type="text" id="pixNomeInput" placeholder="Encantos de Altitude" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+    <label for="pixCidadeInput">Cidade</label>
+    <input type="text" id="pixCidadeInput" placeholder="Sao Joaquim" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:12px;">
+    <button onclick="salvarPix()">Salvar</button>
   </div>
 </div>
 
@@ -565,6 +585,8 @@ let valorFaxinaContainer = 80;
 function valorFaxinaPorCabana(cabana){
   return (cabana||'').toUpperCase().indexOf('CONTAINER') === 0 ? valorFaxinaContainer : valorFaxinaCabana;
 }
+// Dados PIX (para o QR Code na fatura de frigobar)
+let pixKey = '', pixNome = 'Encantos de Altitude', pixCidade = 'Sao Joaquim';
 let faxinaDetailsLocal = {};
 try { faxinaDetailsLocal = JSON.parse(localStorage.getItem('painelFaxinas') || '{}'); } catch(e){ faxinaDetailsLocal = {}; }
 function saveFaxinasLocal(){ localStorage.setItem('painelFaxinas', JSON.stringify(faxinaDetailsLocal)); }
@@ -610,6 +632,9 @@ function refreshFrigobarCache(){
       if(config && typeof config === 'object' && !config.error){
         if(config.valorFaxinaCabana !== undefined) valorFaxinaCabana = Number(config.valorFaxinaCabana) || 80;
         if(config.valorFaxinaContainer !== undefined) valorFaxinaContainer = Number(config.valorFaxinaContainer) || 80;
+        if(config.pixKey !== undefined) pixKey = config.pixKey || '';
+        if(config.pixNome !== undefined && config.pixNome) pixNome = config.pixNome;
+        if(config.pixCidade !== undefined && config.pixCidade) pixCidade = config.pixCidade;
       }
       renderStock();
       render();
@@ -855,6 +880,51 @@ function salvarValorFaxina(tipo, val){
     apiSalvarConfig(tipo === 'cabana' ? 'valorFaxinaCabana' : 'valorFaxinaContainer', v)
       .catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
   }
+}
+
+// ---------- Dados PIX + payload EMV (para o QR Code da fatura) ----------
+function openPixModal(){
+  document.getElementById('pixKeyInput').value = pixKey;
+  document.getElementById('pixNomeInput').value = pixNome;
+  document.getElementById('pixCidadeInput').value = pixCidade;
+  document.getElementById('pixModal').style.display = 'flex';
+}
+function closePixModal(){ document.getElementById('pixModal').style.display = 'none'; }
+function salvarPix(){
+  if(!isAdmin){ alert('Somente administradores podem alterar os dados PIX.'); return; }
+  pixKey = document.getElementById('pixKeyInput').value.trim();
+  pixNome = document.getElementById('pixNomeInput').value.trim() || 'Encantos de Altitude';
+  pixCidade = document.getElementById('pixCidadeInput').value.trim() || 'Sao Joaquim';
+  if(apiAvailable()){
+    Promise.all([
+      apiSalvarConfig('pixKey', pixKey),
+      apiSalvarConfig('pixNome', pixNome),
+      apiSalvarConfig('pixCidade', pixCidade)
+    ]).then(() => { closePixModal(); alert('Dados PIX salvos.'); })
+      .catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
+  } else {
+    closePixModal();
+    alert('Dados PIX salvos (neste navegador).');
+  }
+}
+function tlv_(id, v){ return id + String(v.length).padStart(2,'0') + v; }
+function crc16_(s){
+  let c = 0xFFFF;
+  for(let i=0;i<s.length;i++){
+    c ^= s.charCodeAt(i) << 8;
+    for(let j=0;j<8;j++) c = (c & 0x8000) ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF;
+  }
+  return c.toString(16).toUpperCase().padStart(4,'0');
+}
+function pixPayload(valor){
+  if(!pixKey) return '';
+  const nm = pixNome.normalize('NFD').replace(/[̀-ͯ]/g,'').substring(0,25) || 'Pagamento';
+  const ct = pixCidade.normalize('NFD').replace(/[̀-ͯ]/g,'').substring(0,15) || 'Brasil';
+  const mai = tlv_('00','br.gov.bcb.pix') + tlv_('01', pixKey);
+  let p = tlv_('00','01') + tlv_('26', mai) + tlv_('52','0000') + tlv_('53','986') +
+    (valor > 0 ? tlv_('54', Number(valor).toFixed(2)) : '') + tlv_('58','BR') +
+    tlv_('59', nm) + tlv_('60', ct) + tlv_('62', tlv_('05','***')) + '6304';
+  return p + crc16_(p);
 }
 
 // ---------- Painel de Manutenção (ordens de serviço) ----------
@@ -1147,6 +1217,7 @@ function updateAdminUI(){
   btn.classList.toggle('is-active', isAdmin);
   document.getElementById('stockBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('productsBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('pixBtn').style.display = isAdmin ? 'inline-block' : 'none';
   const fbtn = document.getElementById('faxineiraToggleBtn');
   fbtn.textContent = isFaxineira ? '🧹 Colaborador da Limpeza (clique para sair)' : '🧹 Entrar como colaborador da limpeza';
   fbtn.classList.toggle('is-active', isFaxineira);
@@ -1889,12 +1960,32 @@ function imprimirFaturaFrigobar(){
   const rodape = hideFinance()
     ? '<strong>Total a cobrar (frigobar): ' + fmtMoney(totalFrigobar) + '</strong>'
     : 'Frigobar: ' + fmtMoney(totalFrigobar) + '<br>Saldo da reserva: ' + fmtMoney(saldo) + '<br><strong>Total a pagar: ' + fmtMoney(totalGeral) + '</strong>';
+  const pixValor = hideFinance() ? totalFrigobar : totalGeral;
+  const payload = pixPayload(pixValor);
+  const pixHtml = pixKey ? (
+    '<div style="text-align:center;margin-top:18px;padding-top:14px;border-top:1px dashed #ccc;">' +
+    '<div style="font-weight:600;margin-bottom:8px;">💳 Pague via PIX (aponte a câmera)</div>' +
+    '<div id="qrFatura" style="display:inline-block;"></div>' +
+    '<div style="font-size:11px;color:#555;margin-top:6px;word-break:break-all;">Chave: ' + pixKey + '</div>' +
+    '<div style="font-size:11px;color:#555;">' + pixNome + '</div>' +
+    '<div style="font-size:10px;color:#888;margin-top:6px;">PIX copia e cola:</div>' +
+    '<div style="font-size:9px;color:#999;word-break:break-all;">' + payload + '</div>' +
+    '</div>'
+  ) : (isAdmin ? '<div style="text-align:center;margin-top:14px;font-size:11px;color:#c25b00;">Configure a chave PIX em "💳 Dados PIX" para gerar o QR Code.</div>' : '');
   const html = printHeaderHtml('Fatura de Consumo — Fechamento') +
     '<p><strong>Hóspede/reserva:</strong> ' + label + '</p>' +
     '<table class="print-table"><thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Subtotal</th></tr></thead>' +
     '<tbody>' + (rows || '<tr><td colspan="4">Nenhum consumo lançado.</td></tr>') + '</tbody></table>' +
-    '<div class="print-total">' + rodape + '</div>';
-  printContent(html, 'portrait');
+    '<div class="print-total">' + rodape + '</div>' + pixHtml;
+  setPrintOrientation('portrait');
+  document.getElementById('printArea').innerHTML = html;
+  if(payload && window.QRCode){
+    const qrEl = document.getElementById('qrFatura');
+    if(qrEl){ try { new QRCode(qrEl, {text: payload, width:170, height:170, correctLevel: QRCode.CorrectLevel.M}); } catch(e){} }
+    setTimeout(function(){ window.print(); }, 500);
+  } else {
+    setTimeout(function(){ window.print(); }, 50);
+  }
 }
 
 updateAdminUI();
