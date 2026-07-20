@@ -444,11 +444,36 @@ function gravarReservasCsv_(texto){
   return valores.length;
 }
 
+// Lê o anexo tentando UTF-8 e caindo para latin1 se a acentuação vier quebrada.
+function lerAnexoTexto_(anexo){
+  var texto = anexo.getDataAsString('UTF-8');
+  if(texto.indexOf('�') > -1){
+    try { texto = anexo.getDataAsString('ISO-8859-1'); } catch(e){}
+  }
+  return texto;
+}
+
+// Identifica o relatório de reservas pelo CONTEÚDO (cabeçalho), não pelo nome
+// do arquivo. Assim não importa o nome comprido que o FazReservas gera, e não
+// há risco de pegar um CSV de outro assunto que esteja na caixa de entrada.
+function csvPareceReservas_(texto){
+  if(!texto) return false;
+  var primeira = String(texto).replace(/\r\n/g,'\n').split('\n')[0] || '';
+  var h = primeira.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  var pontos = 0;
+  if(h.indexOf('check') > -1) pontos++;               // Check In / Check-in
+  if(h.indexOf('acomoda') > -1 || h.indexOf('alojamento') > -1) pontos++;
+  if(h.indexOf('nome') > -1) pontos++;                // Nome completo
+  if(h.indexOf('status') > -1) pontos++;
+  if(h.indexOf('noites') > -1) pontos++;
+  return pontos >= 3;
+}
+
 function atualizarReservasDoEmail(){
   var cfg = getConfig_();
   var busca = cfg.buscaEmailReservas || BUSCA_EMAIL_PADRAO;
   var threads = GmailApp.search(busca, 0, 20);
-  var melhor = null;
+  var candidatos = [];
   for(var i=0;i<threads.length;i++){
     var msgs = threads[i].getMessages();
     for(var j=0;j<msgs.length;j++){
@@ -456,31 +481,37 @@ function atualizarReservasDoEmail(){
       var anexos = m.getAttachments();
       for(var k=0;k<anexos.length;k++){
         var nome = String(anexos[k].getName()).toLowerCase();
+        // Aceita qualquer .csv — o nome do arquivo é irrelevante.
         if(nome.indexOf('.csv') === -1) continue;
-        if(!melhor || m.getDate().getTime() > melhor.quando.getTime()){
-          melhor = {quando: m.getDate(), anexo: anexos[k], assunto: m.getSubject(), de: m.getFrom(), arquivo: anexos[k].getName()};
-        }
+        candidatos.push({quando: m.getDate(), anexo: anexos[k], assunto: m.getSubject(), de: m.getFrom(), arquivo: anexos[k].getName()});
       }
     }
   }
-  if(!melhor){
+  if(!candidatos.length){
     return {ok:false, error:'Nenhum e-mail com anexo .csv encontrado. Busca usada: ' + busca};
   }
-  var texto = melhor.anexo.getDataAsString('UTF-8');
-  // Se vier com acentuação quebrada, tenta latin1 (alguns sistemas exportam assim).
-  if(texto.indexOf('�') > -1){
-    try { texto = melhor.anexo.getDataAsString('ISO-8859-1'); } catch(e){}
+  // Do mais recente para o mais antigo, usa o primeiro que for mesmo de reservas.
+  candidatos.sort(function(a,b){ return b.quando.getTime() - a.quando.getTime(); });
+  var escolhido = null, texto = null, ignorados = [];
+  for(var c=0;c<candidatos.length;c++){
+    var t = lerAnexoTexto_(candidatos[c].anexo);
+    if(csvPareceReservas_(t)){ escolhido = candidatos[c]; texto = t; break; }
+    ignorados.push(candidatos[c].arquivo);
+  }
+  if(!escolhido){
+    return {ok:false, error:'Encontrei ' + candidatos.length + ' anexo(s) .csv, mas nenhum tem cabeçalho de reservas. Ignorados: ' + ignorados.join(', ')};
   }
   var qtdLinhas = gravarReservasCsv_(texto);
   salvarConfig_({chave:'reservasAtualizadoEm', valor: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')});
-  salvarConfig_({chave:'reservasOrigem', valor: melhor.arquivo + ' — ' + melhor.de});
+  salvarConfig_({chave:'reservasOrigem', valor: escolhido.arquivo + ' — ' + escolhido.de});
   return {
     ok: true,
-    de: melhor.de,
-    assunto: melhor.assunto,
-    arquivo: melhor.arquivo,
-    dataEmail: Utilities.formatDate(melhor.quando, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'),
-    linhasGravadas: qtdLinhas
+    de: escolhido.de,
+    assunto: escolhido.assunto,
+    arquivo: escolhido.arquivo,
+    dataEmail: Utilities.formatDate(escolhido.quando, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'),
+    linhasGravadas: qtdLinhas,
+    ignorados: ignorados
   };
 }
 
@@ -502,7 +533,8 @@ function diagnosticarEmailReservas(){
           de: m.getFrom(),
           assunto: m.getSubject(),
           arquivo: anexos[k].getName(),
-          quando: Utilities.formatDate(m.getDate(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+          quando: Utilities.formatDate(m.getDate(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'),
+          ehRelatorioDeReservas: csvPareceReservas_(lerAnexoTexto_(anexos[k]))
         });
       }
     }
@@ -513,14 +545,17 @@ function diagnosticarEmailReservas(){
   return achados;
 }
 
-// Cria o acionador que atualiza as reservas de hora em hora (evita duplicar).
+// Cria o acionador que atualiza as reservas a cada 2 horas.
+// Se já houver um acionador antigo (ex.: de hora em hora), ele é removido antes.
 function criarAcionadorReservas(){
-  var jaExiste = false;
   var gatilhos = ScriptApp.getProjectTriggers();
+  var removidos = 0;
   for(var i=0;i<gatilhos.length;i++){
-    if(gatilhos[i].getHandlerFunction() === 'atualizarReservasDoEmail') jaExiste = true;
+    if(gatilhos[i].getHandlerFunction() === 'atualizarReservasDoEmail'){
+      ScriptApp.deleteTrigger(gatilhos[i]);
+      removidos++;
+    }
   }
-  if(jaExiste) return {ok:true, info:'Acionador já existia.'};
-  ScriptApp.newTrigger('atualizarReservasDoEmail').timeBased().everyHours(1).create();
-  return {ok:true, info:'Acionador criado: roda de hora em hora.'};
+  ScriptApp.newTrigger('atualizarReservasDoEmail').timeBased().everyHours(2).create();
+  return {ok:true, info:'Acionador ativo: atualiza a cada 2 horas.' + (removidos ? ' (' + removidos + ' acionador(es) antigo(s) substituído(s))' : '')};
 }
