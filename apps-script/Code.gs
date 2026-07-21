@@ -494,16 +494,48 @@ function enviarTelegram_(chatId, texto){
   var ok = resp.getResponseCode() === 200;
   return {ok:ok, code:resp.getResponseCode(), resposta: ok ? 'enviado' : resp.getContentText().slice(0,200)};
 }
-function alertaTelegram_(body){
+// WhatsApp pelo CallMeBot (grátis). Cada pessoa autoriza uma vez pelo próprio
+// WhatsApp e recebe uma apikey; guardamos telefone + apikey de cada uma na Config.
+// Observação: nem o CallMeBot nem a API oficial do WhatsApp enviam para GRUPOS —
+// por isso cada responsável recebe a mensagem individualmente.
+function enviarWhatsApp_(fone, apikey, texto){
+  if(!fone || !apikey) return {ok:false, error:'WhatsApp sem número/chave configurados para este destinatário.'};
+  var url = 'https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(fone) +
+            '&apikey=' + encodeURIComponent(apikey) +
+            '&text=' + encodeURIComponent(texto);
+  var resp = UrlFetchApp.fetch(url, {muteHttpExceptions:true});
+  var corpo = resp.getContentText() || '';
+  var ok = resp.getResponseCode() === 200 && corpo.toLowerCase().indexOf('error') === -1;
+  return {ok:ok, code:resp.getResponseCode(), resposta: corpo.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,200)};
+}
+// O painel continua chamando action=alertaTelegram; aqui decidimos o canal
+// conforme a Config (alertaCanal: 'whatsapp' padrão, ou 'telegram').
+function alertaTelegram_(body){ return enviarAlerta_(body); }
+function enviarAlerta_(body){
   var cfg = getConfig_();
   var destino = body.destino || 'admin';
-  var chat = destino === 'manutencao' ? cfg.telegramChatManutencao
-           : destino === 'faxina' ? cfg.telegramChatFaxina
-           : cfg.telegramChatAdmin;
-  // Sempre manda também para o admin, se configurado e diferente (cópia de segurança).
-  var r = enviarTelegram_(chat, body.mensagem || '(sem mensagem)');
-  if(cfg.telegramChatAdmin && cfg.telegramChatAdmin !== chat && destino !== 'admin' && body.copiaAdmin !== false){
-    enviarTelegram_(cfg.telegramChatAdmin, body.mensagem || '(sem mensagem)');
+  var bruto = String(body.mensagem || '(sem mensagem)');
+  var canal = String(cfg.alertaCanal || 'whatsapp').toLowerCase();
+  var r;
+  if(canal === 'telegram'){
+    var chat = destino === 'manutencao' ? cfg.telegramChatManutencao
+             : destino === 'faxina' ? cfg.telegramChatFaxina : cfg.telegramChatAdmin;
+    r = enviarTelegram_(chat, bruto);
+    if(cfg.telegramChatAdmin && cfg.telegramChatAdmin !== chat && destino !== 'admin' && body.copiaAdmin !== false){
+      enviarTelegram_(cfg.telegramChatAdmin, bruto);
+    }
+    return r;
+  }
+  // WhatsApp: converte o negrito do HTML para o do WhatsApp e limpa o resto.
+  var msg = bruto.replace(/<\/?b>/g, '*').replace(/<[^>]+>/g, '');
+  var fone = destino === 'manutencao' ? cfg.waManutencaoFone
+           : destino === 'faxina' ? cfg.waFaxinaFone : cfg.waAdminFone;
+  var key  = destino === 'manutencao' ? cfg.waManutencaoKey
+           : destino === 'faxina' ? cfg.waFaxinaKey  : cfg.waAdminKey;
+  r = enviarWhatsApp_(fone, key, msg);
+  // cópia para o administrador
+  if(cfg.waAdminFone && cfg.waAdminKey && destino !== 'admin' && cfg.waAdminFone !== fone && body.copiaAdmin !== false){
+    enviarWhatsApp_(cfg.waAdminFone, cfg.waAdminKey, msg);
   }
   return r;
 }
