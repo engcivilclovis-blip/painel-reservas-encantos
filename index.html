@@ -201,6 +201,11 @@
       <button class="secondary" onclick="toggleArea()">Colar CSV manualmente</button>
       <button class="secondary" onclick="loadSample()">Carregar exemplo</button>
     </div>
+    <div class="toolbar-row" style="margin-top:2px;">
+      <span class="status" style="font-size:12px;background:#eaf6ec;border:1px solid #b7ddbf;color:#1e6b30;padding:4px 9px;border-radius:6px;">
+        🔄 A importação manual é <strong>sincronizada com todos os aparelhos</strong> (precisa de internet). O normal é o painel já atualizar sozinho pelo e-mail do FazReservas.
+      </span>
+    </div>
     <div class="toolbar-row" id="pasteRow" style="display:none;">
       <textarea id="pasteArea" placeholder="Cole aqui o conteúdo do CSV exportado (Reservas > Lista > CSV)"></textarea>
       <button onclick="importPasted()">Importar texto colado</button>
