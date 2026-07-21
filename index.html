@@ -2123,20 +2123,42 @@ function carregarCsvDoRepositorio(){
     .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
     .then(text => loadCSVText(text, true, 'publicado no repositório'));
 }
-// Ordem das fontes: 1) PDF do relatório do FazReservas (e-mail, via robô),
-// 2) CSV sincronizado na planilha (fluxo antigo), 3) CSV publicado no
-// repositório, 4) último CSV salvo neste navegador.
+function parseBrDateTimeMs_(s){
+  const m = String(s||'').match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
+  return m ? new Date(+m[3], +m[2]-1, +m[1], +m[4], +m[5]).getTime() : 0;
+}
+// Ordem das fontes (quando há API):
+//   1) importação manual, SE for mais recente que o último PDF automático;
+//   2) PDF do relatório do FazReservas (e-mail, via robô);
+//   3) CSV sincronizado na planilha (fluxo antigo);
+//   4) CSV publicado no repositório; 5) último CSV salvo neste navegador.
+// A importação manual e o PDF vêm da nuvem, então valem para TODOS os aparelhos.
 function initialLoad(){
-  if(apiAvailable()){
-    carregarReservasDoPdf()
-      .catch(() => apiGetReservasCsv().then(r => {
-        if(!r || !r.csv || r.csv.length < 50) throw new Error('sem reservas na planilha');
-        loadCSVText(r.csv, true, 'sincronizado do FazReservas' + (r.atualizadoEm ? ' em ' + r.atualizadoEm : ''));
-      }))
-      .catch(() => carregarCsvDoRepositorio().catch(() => restoreLastCSV()));
-  } else {
-    carregarCsvDoRepositorio().catch(() => restoreLastCSV());
-  }
+  if(!apiAvailable()){ carregarCsvDoRepositorio().catch(() => restoreLastCSV()); return; }
+  Promise.all([
+    apiGetConfig().catch(() => ({})),
+    apiGetReservasPdf().catch(() => null)
+  ]).then(function(res){
+    const cfg = res[0] || {}, pdf = res[1];
+    const manualCsv = cfg.reservasManualCsv;
+    const manualEm = Number(cfg.reservasManualEm) || 0;
+    const pdfEm = pdf && pdf.atualizadoEm ? parseBrDateTimeMs_(pdf.atualizadoEm) : 0;
+    if(manualCsv && manualCsv.length > 30 && manualEm >= pdfEm){
+      loadCSVText(manualCsv, true, 'importado manualmente (sincronizado com todos)');
+      return;
+    }
+    if(pdf && pdf.b64){
+      return extrairItensPdf(b64ParaUint8_(pdf.b64).buffer).then(function(itens){
+        const regs = parseReservasPdfItens(itens);
+        if(!regs.length) throw new Error('PDF sem reservas');
+        loadCSVText(reservasPdfParaCsv(regs), true, 'sincronizado do FazReservas (PDF)' + (pdf.atualizadoEm ? ' em ' + pdf.atualizadoEm : ''));
+      });
+    }
+    throw new Error('sem PDF de reservas');
+  }).catch(() => apiGetReservasCsv().then(r => {
+    if(!r || !r.csv || r.csv.length < 50) throw new Error('sem reservas na planilha');
+    loadCSVText(r.csv, true, 'sincronizado do FazReservas' + (r.atualizadoEm ? ' em ' + r.atualizadoEm : ''));
+  })).catch(() => carregarCsvDoRepositorio().catch(() => restoreLastCSV()));
 }
 function buscarReservasNoEmail(){
   if(!isAdmin){ alert('Somente administradores podem sincronizar as reservas.'); return; }
@@ -2163,9 +2185,24 @@ document.getElementById('fileInput').addEventListener('change', function(e){
   const file = e.target.files[0];
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = ev => loadCSVText(ev.target.result);
+  reader.onload = ev => { loadCSVText(ev.target.result); sincronizarImportacaoManual(ev.target.result); };
   reader.readAsText(file, 'UTF-8');
 });
+// Salva o CSV importado à mão na planilha (Config) para que TODOS os aparelhos
+// recebam. Marca a data para o initialLoad saber se a importação manual é mais
+// recente que o último PDF automático (aí a manual tem prioridade).
+function sincronizarImportacaoManual(texto){
+  if(!isAdmin || !apiAvailable() || !texto || !texto.trim()) return;
+  Promise.all([
+    apiSalvarConfig('reservasManualCsv', texto),
+    apiSalvarConfig('reservasManualEm', String(Date.now()))
+  ]).then(function(){
+    const el = document.getElementById('statusMsg');
+    if(el) el.textContent += ' — sincronizado com todos os aparelhos';
+  }).catch(function(){
+    alert('As reservas foram carregadas neste aparelho, mas não consegui sincronizar com os outros agora (verifique a conexão).');
+  });
+}
 function toggleArea(){
   const row = document.getElementById('pasteRow');
   row.style.display = row.style.display==='none' ? 'flex' : 'none';
@@ -2175,6 +2212,7 @@ function importPasted(){
   const txt = document.getElementById('pasteArea').value;
   if(txt.trim()==='') { alert('Cole o conteúdo do CSV antes de importar.'); return; }
   loadCSVText(txt);
+  sincronizarImportacaoManual(txt);
 }
 function loadSample(){
   if(!isAdmin){ alert('Somente administradores podem importar dados.'); return; }
