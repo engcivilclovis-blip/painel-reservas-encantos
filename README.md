@@ -97,6 +97,31 @@ Abaixo do calendário de faxinas há uma tabela com **todas as faxinas já confi
 - Aba **"📦 Materiais"**: lista os pedidos de material/reposição, com botão para marcar como concluído.
 - Aba **"📅 Programação Semanal"**: um quadro dia a dia (como o de reservas) mostrando as ordens **agendadas** de cada dia da semana — a "agenda" das tarefas de manutenção pendentes. Navega por semana.
 
+## Módulo Financeiro — Conciliação bancária (Sicredi)
+
+Só o **administrador** vê este módulo (💰 Financeiro na barra lateral). Ele confere se os pagamentos que o FazReservas registra como recebidos **realmente caíram na conta Sicredi** — feito para pegar o caso de hóspede de reserva direta que vai embora sem pagar.
+
+**Como usar (funciona no celular e no PC):**
+1. No app/internet banking do Sicredi, baixe o **extrato em PDF** do período.
+2. No módulo Financeiro, toque em **"📄 Carregar extrato (PDF)"** e escolha o arquivo. O sistema lê o PDF direto no navegador (não precisa renomear nada) e extrai só os **recebimentos** (linhas `RECEBIMENTO PIX` e `TED`), com **pagador, valor e data**.
+3. Para atualizar, é só carregar um PDF novo por cima. O extrato lido fica salvo na planilha (Config), então **sincroniza entre celular e PC**.
+4. Plano B: se algum PDF vier em formato diferente, use **"Colar texto (plano B)"** e cole o texto do extrato.
+
+**Como concilia:** para cada reserva própria (não Booking/Airbnb), compara o quanto o FazReservas diz que **já entrou** (`valor − saldo`) com os recebimentos do extrato, casando por **nome do pagador** e **valor**. Os status:
+
+| Status | Significado |
+|---|---|
+| ✅ **Conciliado** | O valor que os livros dizem ter recebido bateu no extrato, com o nome do hóspede. |
+| 👥 **Valor bate, pagador difere** | O valor entrou, mas quem pagou tem outro nome (possível pagamento de terceiro). |
+| ⚠️ **Valor difere** | Recebimento do hóspede encontrado, mas em valor diferente do registrado. |
+| ⛔ **Consta pago, não achei no extrato** | O FazReservas diz que recebeu, mas **não há esse crédito na conta** — alerta de possível calote. |
+| 💡 **Recebido no banco, não lançado** | Entrou dinheiro do hóspede no Sicredi, mas o FazReservas ainda mostra saldo em aberto (falta lançar). |
+| ⏳ **A receber** | Ainda não há recebimento registrado — normal para check-out futuro. |
+
+**Ajustes do administrador** (por reserva): **✅ OK** (confirma manualmente), **👥 Terceiro** (informa o nome de quem pagou) e **💵 Dinheiro** (recebido em espécie, fora da conta). Cada ajuste fica salvo e sincronizado; **↩️ Limpar ajuste** volta ao automático. Há ainda a lista **"recebimentos no extrato sem reserva correspondente"**, útil para achar dinheiro que entrou sem reserva ligada.
+
+Os cartões no topo resumem: **⛔ consta pago sem extrato**, **⚠️ a revisar**, **⏳ a receber** e **✅ conciliados**.
+
 ### ⚠️ Importante sobre o código de administrador
 
 Os códigos ficam definidos no `<script>` de `index.html`: `ADMIN_PIN` (administrador), `FAXINEIRA_PIN` (colaborador da limpeza) e `MANUTENCAO_PIN` (colaborador de manutenção). **Troque os três valores antes de publicar.**

@@ -8,6 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
 <!-- Gerador de QR Code (para o PIX na fatura). Se ficar sem internet, a fatura ainda mostra a chave PIX em texto. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- Leitor de PDF (para conciliar o extrato do Sicredi direto no navegador, inclusive no celular).
+     É carregado sob demanda em carregarPdfJs(); esta tag apenas adianta o download quando há internet. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root{
     --brand-terra:#884D2F; --brand-gold:#DCB188; --brand-gold-deep:#A9713F; --brand-charcoal:#2B2B2A; --brand-cream:#E2DDD5;
@@ -73,6 +76,31 @@
   .badge.b-warn{background:var(--warn);}
   .badge.b-frigobar{background:var(--frigobar);}
   .badge.b-obs{background:var(--obs);}
+  /* ---- Conciliação bancária (Sicredi) ---- */
+  .concil-cards{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 14px;}
+  .concil-card{flex:1 1 150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;}
+  .concil-card .n{font-size:20px;font-weight:600;font-family:'Playfair Display',serif;}
+  .concil-card .l{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8a7d6f;}
+  .concil-card.alerta{border-color:#c0392b;background:#fdecea;}
+  .concil-card.alerta .n{color:#c0392b;}
+  .concil-card.ok{border-color:var(--ok);background:#eaf6ec;}
+  .concil-card.ok .n{color:var(--ok);}
+  .concil-table{width:100%;border-collapse:collapse;font-size:13px;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+  .concil-table th,.concil-table td{padding:7px 9px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;}
+  .concil-table th{background:#f3ece2;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b5f52;}
+  .concil-table tr:last-child td{border-bottom:none;}
+  .st-pill{display:inline-block;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap;}
+  .st-conciliado{background:#eaf6ec;color:#1e6b30;border:1px solid #b7ddbf;}
+  .st-terceiro{background:#eef2fb;color:#2b4a8a;border:1px solid #bcccec;}
+  .st-dinheiro{background:#eef7fb;color:#1d5f78;border:1px solid #b6ddea;}
+  .st-nome_divergente{background:#fff3e0;color:#9a5a00;border:1px solid #f0cf9a;}
+  .st-valor_divergente{background:#fff8e0;color:#8a6d00;border:1px solid #ece1a0;}
+  .st-sem_recebimento{background:#fdecea;color:#b02a1c;border:1px solid #f0b7ae;}
+  .st-a_receber{background:#f1eee9;color:#6b5f52;border:1px solid var(--border);}
+  .st-recebido_nao_lancado{background:#eef7fb;color:#1d5f78;border:1px solid #b6ddea;}
+  .st-plataforma{background:#eef4fa;color:#2b5f8a;border:1px solid #bcd2e8;}
+  .concil-acoes button{padding:3px 7px;font-size:11px;margin:1px 2px 1px 0;}
+  .concil-sub{font-size:11px;color:#8a7d6f;margin-top:2px;}
   .empty{color:#a89b8d;font-size:11px;padding:4px 8px;}
   .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:#5a5049;}
   .legend span{display:inline-flex;align-items:center;gap:5px;}
@@ -160,6 +188,7 @@
     <button class="side-btn on" id="navReservasBtn" onclick="irModulo('reservas')">📋 Reservas</button>
     <button class="side-btn" id="navFaxinasBtn" onclick="irModulo('faxinas')" style="display:none;">🧹 Faxinas</button>
     <button class="side-btn" id="navManutencaoBtn" onclick="irModulo('manutencao')" style="display:none;">🔧 Manutenção</button>
+    <button class="side-btn" id="navFinanceiroBtn" onclick="irModulo('financeiro')" style="display:none;">💰 Financeiro</button>
   </nav>
   <div class="app-main">
 
@@ -407,6 +436,33 @@
   </div>
 </div>
 
+<div class="module-view" id="module-financeiro">
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <strong>Conciliação bancária — extrato Sicredi</strong>
+    </div>
+    <div class="toolbar-row">
+      <label class="secondary" style="background:var(--brand-terra);color:#fff;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;">
+        📄 Carregar extrato (PDF)
+        <input type="file" id="sicrediPdfInput" accept="application/pdf,.pdf" style="display:none;" onchange="onSicrediPdfSelecionado(this)">
+      </label>
+      <button class="secondary" onclick="abrirColarExtrato()">Colar texto (plano B)</button>
+      <span id="sicrediStatusMsg" class="status" style="font-size:12px;">Nenhum extrato carregado ainda.</span>
+    </div>
+    <div class="toolbar-row" id="colarExtratoRow" style="display:none;">
+      <textarea id="colarExtratoArea" placeholder="Cole aqui o texto do extrato do Sicredi (linhas com RECEBIMENTO PIX ...)."></textarea>
+      <button onclick="importarExtratoColado()">Processar texto</button>
+    </div>
+    <div class="toolbar-row" style="margin-bottom:0;">
+      <label class="chk"><input type="checkbox" id="concilShowAll" onchange="renderConciliacao()"> Mostrar reservas de plataforma (Booking/Airbnb)</label>
+      <label class="chk"><input type="checkbox" id="concilSoAlertas" onchange="renderConciliacao()"> Só pendências e alertas</label>
+    </div>
+  </div>
+  <div id="concilCardsBox"></div>
+  <div id="concilCreditosBox"></div>
+  <div id="concilTableBox"></div>
+</div>
+
   </div>
 </div>
 
@@ -641,11 +697,13 @@ function refreshFrigobarCache(){
         if(config.pixKey !== undefined) pixKey = config.pixKey || '';
         if(config.pixNome !== undefined && config.pixNome) pixNome = config.pixNome;
         if(config.pixCidade !== undefined && config.pixCidade) pixCidade = config.pixCidade;
+        carregarConciliacaoDaConfig(config);
       }
       renderStock();
       render();
       if(activeModulo === 'faxinas') renderFaxinasList();
       if(activeModulo === 'manutencao'){ renderManutencaoList(); renderMateriaisList(); renderManutSemana(); }
+      if(activeModulo === 'financeiro') renderConciliacao();
     })
     .catch(() => { /* mantém o último estado conhecido se a rede falhar */ });
 }
@@ -983,6 +1041,384 @@ function salvarValorFaxina(tipo, val){
     apiSalvarConfig(tipo === 'cabana' ? 'valorFaxinaCabana' : 'valorFaxinaContainer', v)
       .catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
   }
+}
+
+// ======================================================================
+// Conciliação bancária — extrato Sicredi
+// Fluxo: admin carrega o PDF do extrato (celular ou PC) -> parseia os
+// recebimentos (RECEBIMENTO PIX / TED) -> casa com as reservas por nome e
+// valor -> mostra status elaborado e permite ajustes (terceiro/dinheiro).
+// Tudo é salvo na Config (Google Sheets) para sincronizar entre aparelhos.
+// ======================================================================
+let sicrediCreditos = [];              // [{data:'DD/MM/AAAA', pagador, doc, valor}]
+let sicrediMeta = {periodo:'', atualizadoEm:'', origem:''};
+let conciliacaoOverrides = {};         // reservaKey -> {status, pagador, obs, em}
+
+function carregarConciliacaoDaConfig(config){
+  try {
+    if(config.sicrediExtratoJson){
+      const o = JSON.parse(config.sicrediExtratoJson);
+      if(o && Array.isArray(o.creditos)){
+        sicrediCreditos = o.creditos;
+        sicrediMeta = {periodo:o.periodo||'', atualizadoEm:o.atualizadoEm||'', origem:o.origem||''};
+      }
+    }
+  } catch(e){ /* mantém o que já tinha */ }
+  try {
+    if(config.conciliacaoOverrides){
+      const m = JSON.parse(config.conciliacaoOverrides);
+      if(m && typeof m === 'object') conciliacaoOverrides = m;
+    }
+  } catch(e){ /* ignora */ }
+}
+function salvarExtratoNaConfig(){
+  const payload = JSON.stringify({creditos:sicrediCreditos, periodo:sicrediMeta.periodo, atualizadoEm:sicrediMeta.atualizadoEm, origem:sicrediMeta.origem});
+  if(apiAvailable()){
+    apiSalvarConfig('sicrediExtratoJson', payload)
+      .catch(() => alert('Extrato processado, mas não consegui salvar na nuvem agora. Ele vale só neste aparelho até a próxima sincronização.'));
+  }
+  try { localStorage.setItem('painelSicrediExtrato', payload); } catch(e){}
+}
+function salvarOverridesNaConfig(){
+  const payload = JSON.stringify(conciliacaoOverrides);
+  if(apiAvailable()){
+    apiSalvarConfig('conciliacaoOverrides', payload)
+      .catch(() => alert('Ajuste salvo neste aparelho, mas não consegui salvar na nuvem agora.'));
+  }
+  try { localStorage.setItem('painelConciliacaoOverrides', payload); } catch(e){}
+}
+// Restaura do localStorage quando não há API (offline / sem backend)
+(function restaurarConciliacaoLocal(){
+  try {
+    const e = localStorage.getItem('painelSicrediExtrato');
+    if(e){ const o = JSON.parse(e); if(o && Array.isArray(o.creditos)){ sicrediCreditos = o.creditos; sicrediMeta = {periodo:o.periodo||'', atualizadoEm:o.atualizadoEm||'', origem:o.origem||''}; } }
+    const ov = localStorage.getItem('painelConciliacaoOverrides');
+    if(ov){ const m = JSON.parse(ov); if(m && typeof m === 'object') conciliacaoOverrides = m; }
+  } catch(e){}
+})();
+
+// ---------- Parser do extrato ----------
+// Reconstrói o texto e extrai apenas os créditos (dinheiro que ENTROU).
+function parseExtratoSicredi(texto){
+  const linhas = texto.replace(/\r/g,'').split('\n');
+  const creditos = [];
+  let periodo = '';
+  const numRe = /(-?[\d.]+,\d{2})/g;
+  for(let linha of linhas){
+    linha = linha.replace(/\s+/g,' ').trim();
+    if(!linha) continue;
+    const mp = linha.match(/Per[íi]odo de (\d{2}\/\d{2}\/\d{4}) a (\d{2}\/\d{2}\/\d{4})/i);
+    if(mp){ periodo = mp[1] + ' a ' + mp[2]; continue; }
+    const md = linha.match(/^(\d{2}\/\d{2}\/\d{4})\s+(.*)$/);
+    if(!md) continue;
+    const data = md[1];
+    let resto = md[2];
+    const ehPix = /RECEBIMENTO PIX/i.test(resto);
+    const ehTed = /^TED\b/i.test(resto);
+    if(!ehPix && !ehTed) continue;          // só entradas por PIX/TED
+    // Captura os dois últimos números (valor e saldo). O valor é o penúltimo.
+    const nums = resto.match(numRe);
+    if(!nums || nums.length < 2) continue;
+    const valorStr = nums[nums.length - 2];
+    const valor = parseNumber(valorStr);
+    if(valor <= 0) continue;                 // ignora débitos/negativos
+    // Remove os números finais para isolar a descrição.
+    let desc = resto.replace(new RegExp('\\s*' + nums[nums.length-2].replace(/[.]/g,'\\.') + '\\s+' + nums[nums.length-1].replace(/[.]/g,'\\.') + '\\s*$'), '');
+    // Isola o nome do pagador.
+    desc = desc.replace(/RECEBIMENTO PIX/i, '').replace(/^TED/i, '').trim();
+    const tokens = desc.split(' ').filter(Boolean);
+    // Remove 1º token se for CPF/CNPJ/agência (só dígitos).
+    if(tokens.length && /^\d+$/.test(tokens[0])) tokens.shift();
+    // Remove token final se for etiqueta de documento (PIX_CRED, CXxxxxx, só dígitos).
+    while(tokens.length && /^(PIX_CRED|PIX_DEB|CX\S*|\d{3,})$/i.test(tokens[tokens.length-1])) tokens.pop();
+    const pagador = tokens.join(' ').trim();
+    if(!pagador) continue;
+    creditos.push({data:data, pagador:pagador, valor:valor});
+  }
+  return {creditos:creditos, periodo:periodo};
+}
+
+// ---------- Carregar o PDF (pdf.js) ----------
+function carregarPdfJs(){
+  return new Promise(function(resolve, reject){
+    if(window.pdfjsLib){ resolve(window.pdfjsLib); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = function(){ resolve(window.pdfjsLib); };
+    s.onerror = function(){ reject(new Error('Não foi possível carregar o leitor de PDF. Verifique a internet.')); };
+    document.head.appendChild(s);
+  });
+}
+function extrairTextoPdf(arrayBuffer){
+  return carregarPdfJs().then(function(pdfjsLib){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    return pdfjsLib.getDocument({data:arrayBuffer}).promise;
+  }).then(function(pdf){
+    const paginas = [];
+    let cadeia = Promise.resolve();
+    for(let p = 1; p <= pdf.numPages; p++){
+      cadeia = cadeia.then(function(){
+        return pdf.getPage(p).then(function(page){
+          return page.getTextContent().then(function(content){
+            // Agrupa fragmentos por linha (coordenada Y) e ordena por X.
+            const linhas = {};
+            content.items.forEach(function(it){
+              const y = Math.round(it.transform[5]);
+              (linhas[y] = linhas[y] || []).push({x:it.transform[4], s:it.str});
+            });
+            const ys = Object.keys(linhas).map(Number).sort(function(a,b){ return b - a; });
+            const texto = ys.map(function(y){
+              return linhas[y].sort(function(a,b){ return a.x - b.x; }).map(function(o){ return o.s; }).join(' ');
+            }).join('\n');
+            paginas.push(texto);
+          });
+        });
+      });
+    }
+    return cadeia.then(function(){ return paginas.join('\n'); });
+  });
+}
+function onSicrediPdfSelecionado(input){
+  if(!isAdmin){ alert('Somente o administrador pode carregar o extrato.'); input.value=''; return; }
+  const file = input.files && input.files[0];
+  if(!file) return;
+  document.getElementById('sicrediStatusMsg').textContent = '⏳ Lendo o PDF...';
+  const reader = new FileReader();
+  reader.onload = function(){
+    extrairTextoPdf(reader.result)
+      .then(function(texto){ processarExtratoTexto(texto, 'PDF ' + file.name); })
+      .catch(function(err){
+        document.getElementById('sicrediStatusMsg').textContent = '❌ ' + err.message;
+        alert(err.message + '\n\nSe preferir, use "Colar texto (plano B)".');
+      });
+  };
+  reader.onerror = function(){ document.getElementById('sicrediStatusMsg').textContent = '❌ Não consegui ler o arquivo.'; };
+  reader.readAsArrayBuffer(file);
+  input.value = '';
+}
+function abrirColarExtrato(){
+  const row = document.getElementById('colarExtratoRow');
+  row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+}
+function importarExtratoColado(){
+  if(!isAdmin){ alert('Somente o administrador pode carregar o extrato.'); return; }
+  const txt = document.getElementById('colarExtratoArea').value;
+  if(!txt.trim()){ alert('Cole o texto do extrato antes de processar.'); return; }
+  processarExtratoTexto(txt, 'texto colado');
+}
+function processarExtratoTexto(texto, origem){
+  const r = parseExtratoSicredi(texto);
+  if(!r.creditos.length){
+    document.getElementById('sicrediStatusMsg').textContent = '⚠️ Nenhum recebimento (RECEBIMENTO PIX/TED) foi encontrado neste extrato.';
+    alert('Não encontrei recebimentos neste extrato. Confira se é o extrato da conta Sicredi correto.');
+    return;
+  }
+  sicrediCreditos = r.creditos;
+  sicrediMeta = {periodo:r.periodo, atualizadoEm:new Date().toLocaleString('pt-BR'), origem:origem};
+  salvarExtratoNaConfig();
+  document.getElementById('colarExtratoRow').style.display = 'none';
+  document.getElementById('colarExtratoArea').value = '';
+  renderConciliacao();
+}
+
+// ---------- Casamento reserva x crédito ----------
+function tokensNome(s){
+  return norm(s).split(/\s+/).filter(function(t){ return t.length >= 3 && !['de','da','do','dos','das','e'].includes(t); });
+}
+function nomesCombinam(a, b){
+  const ta = tokensNome(a), tb = tokensNome(b);
+  if(!ta.length || !tb.length) return false;
+  let comuns = 0;
+  ta.forEach(function(t){ if(tb.indexOf(t) !== -1) comuns++; });
+  // Bate se compartilham 2+ partes do nome, ou 1 parte QUANDO o primeiro nome
+  // é o mesmo (evita casar só por sobrenome comum, ex. "Silva").
+  return comuns >= 2 || (comuns >= 1 && ta[0] === tb[0]);
+}
+// Quanto o FazReservas diz que JÁ entrou (total - saldo em aberto).
+function recebidoLivros(res){ return Math.max(0, (Number(res.valor)||0) - (Number(res.saldo)||0)); }
+
+function melhorCreditoParaReserva(res){
+  const alvo = recebidoLivros(res);            // compara com o que os livros dizem ter recebido
+  let porNomeEValor = null, porValor = null, porNome = null;
+  sicrediCreditos.forEach(function(c){
+    const nomeOk = nomesCombinam(res.nome, c.pagador);
+    const valorOk = alvo > 0 && Math.abs(c.valor - alvo) <= 1.00;
+    if(nomeOk && valorOk){ if(!porNomeEValor) porNomeEValor = c; }
+    else if(valorOk){ if(!porValor) porValor = c; }
+    else if(nomeOk){ if(!porNome) porNome = c; }
+  });
+  if(porNomeEValor) return {credito:porNomeEValor, tipo:'nome_valor'};
+  if(porNome)       return {credito:porNome, tipo:'nome'};
+  if(porValor)      return {credito:porValor, tipo:'valor'};
+  return {credito:null, tipo:'nenhum'};
+}
+const CONCIL_LABEL = {
+  conciliado:'✅ Conciliado', terceiro:'👥 Terceiro', dinheiro:'💵 Dinheiro',
+  nome_divergente:'👥 Valor bate, pagador difere', valor_divergente:'⚠️ Valor difere',
+  sem_recebimento:'⛔ Consta pago, não achei no extrato', a_receber:'⏳ A receber',
+  recebido_nao_lancado:'💡 Recebido no banco, não lançado', plataforma:'🏢 Plataforma'
+};
+// Status automático (antes de qualquer ajuste manual do admin).
+function statusAutomatico(res, match){
+  if(res.platform === 'Booking.com' || res.platform === 'Airbnb'){
+    return {status:'plataforma', credito:match.credito};
+  }
+  const esperado = recebidoLivros(res);        // > 0 => FazReservas registra recebimento
+  if(esperado > 0){
+    if(match.tipo === 'nome_valor') return {status:'conciliado', credito:match.credito};
+    if(match.tipo === 'valor')      return {status:'nome_divergente', credito:match.credito};
+    if(match.tipo === 'nome')       return {status:'valor_divergente', credito:match.credito};
+    return {status:'sem_recebimento', credito:null};   // livros dizem que recebeu, mas não achei no extrato
+  }
+  // Livros não registram recebimento (saldo == valor):
+  if(match.tipo === 'nome') return {status:'recebido_nao_lancado', credito:match.credito};
+  return {status:'a_receber', credito:null};
+}
+function statusFinalReserva(res){
+  const key = resKey(res);
+  const ov = conciliacaoOverrides[key];
+  const auto = statusAutomatico(res, melhorCreditoParaReserva(res));
+  if(ov && ov.status){
+    return {status:ov.status, credito:auto.credito, override:ov, auto:auto.status};
+  }
+  return {status:auto.status, credito:auto.credito, override:null, auto:auto.status};
+}
+
+// ---------- Render ----------
+function renderConciliacao(){
+  const cardsBox = document.getElementById('concilCardsBox');
+  const credBox = document.getElementById('concilCreditosBox');
+  const tableBox = document.getElementById('concilTableBox');
+  if(!cardsBox) return;
+
+  // Cabeçalho de status do extrato
+  const msg = document.getElementById('sicrediStatusMsg');
+  if(sicrediCreditos.length){
+    msg.textContent = '✅ ' + sicrediCreditos.length + ' recebimento(s)' + (sicrediMeta.periodo ? ' · período ' + sicrediMeta.periodo : '') + (sicrediMeta.atualizadoEm ? ' · carregado ' + sicrediMeta.atualizadoEm : '');
+  } else {
+    msg.textContent = 'Nenhum extrato carregado ainda. Toque em "Carregar extrato (PDF)".';
+  }
+
+  const showAll = document.getElementById('concilShowAll').checked;
+  const soAlertas = document.getElementById('concilSoAlertas').checked;
+
+  // Reservas relevantes: com valor > 0, não canceladas.
+  let lista = reservations.filter(function(r){
+    if(/cancel/i.test(r.status||'')) return false;
+    return true;
+  });
+  lista = lista.map(function(r){ return {res:r, info:statusFinalReserva(r)}; });
+  if(!showAll) lista = lista.filter(function(x){ return x.info.status !== 'plataforma'; });
+  if(soAlertas) lista = lista.filter(function(x){ return ['sem_recebimento','nome_divergente','valor_divergente','recebido_nao_lancado','a_receber'].includes(x.info.status); });
+  // Ordena por prioridade de atenção.
+  const prioridade = {sem_recebimento:0, nome_divergente:1, valor_divergente:2, recebido_nao_lancado:3, a_receber:4, terceiro:5, dinheiro:6, conciliado:7, plataforma:8};
+  lista.sort(function(a,b){
+    const pa = prioridade[a.info.status] ?? 9, pb = prioridade[b.info.status] ?? 9;
+    if(pa !== pb) return pa - pb;
+    const da = a.res.checkout || a.res.checkin || 0, db = b.res.checkout || b.res.checkin || 0;
+    return da - db;
+  });
+
+  // Cartões-resumo (considera só reservas próprias)
+  const proprias = reservations.filter(function(r){ return !/cancel/i.test(r.status||'') && r.platform === 'Próprio'; })
+    .map(function(r){ return statusFinalReserva(r).status; });
+  const cont = function(st){ return proprias.filter(function(s){ return s === st; }).length; };
+  const alertas = cont('sem_recebimento');
+  const conciliados = cont('conciliado') + cont('terceiro') + cont('dinheiro');
+  const pendentes = cont('a_receber');
+  const revisar = cont('nome_divergente') + cont('valor_divergente') + cont('recebido_nao_lancado');
+  cardsBox.innerHTML = '<div class="concil-cards">' +
+    '<div class="concil-card ' + (alertas?'alerta':'') + '"><div class="n">' + alertas + '</div><div class="l">⛔ Consta pago, sem extrato</div></div>' +
+    '<div class="concil-card"><div class="n">' + revisar + '</div><div class="l">⚠️ A revisar</div></div>' +
+    '<div class="concil-card"><div class="n">' + pendentes + '</div><div class="l">⏳ A receber</div></div>' +
+    '<div class="concil-card ok"><div class="n">' + conciliados + '</div><div class="l">✅ Conciliados</div></div>' +
+    '</div>';
+
+  // Recebimentos ainda não vinculados a nenhuma reserva (possível pagamento de terceiro / avulso)
+  const usados = {};
+  reservations.forEach(function(r){
+    const info = statusFinalReserva(r);
+    if(info.credito) usados[info.credito.data + '|' + info.credito.pagador + '|' + info.credito.valor] = true;
+  });
+  const naoVinculados = sicrediCreditos.filter(function(c){ return !usados[c.data + '|' + c.pagador + '|' + c.valor]; });
+  if(naoVinculados.length && !soAlertas){
+    credBox.innerHTML = '<details style="margin:6px 0 12px;"><summary style="cursor:pointer;font-weight:600;font-size:13px;">💸 ' +
+      naoVinculados.length + ' recebimento(s) no extrato sem reserva correspondente (clique para ver)</summary>' +
+      '<table class="concil-table" style="margin-top:8px;"><tr><th>Data</th><th>Pagador</th><th>Valor</th></tr>' +
+      naoVinculados.map(function(c){ return '<tr><td>' + c.data + '</td><td>' + c.pagador + '</td><td>' + fmtMoney(c.valor) + '</td></tr>'; }).join('') +
+      '</table></details>';
+  } else { credBox.innerHTML = ''; }
+
+  if(!lista.length){
+    tableBox.innerHTML = '<p style="color:#8a7d6f;">Nenhuma reserva para conciliar com os filtros atuais.</p>';
+    return;
+  }
+  let html = '<table class="concil-table"><tr>' +
+    '<th>Hóspede</th><th>Acomodação</th><th>Check-out</th><th>Valor / esperado</th><th>Recebido no Sicredi</th><th>Status</th><th>Ações</th></tr>';
+  lista.forEach(function(x){
+    const r = x.res, info = x.info;
+    const key = encodeURIComponent(resKey(r));
+    const co = r.checkout ? r.checkout.toLocaleDateString('pt-BR') : '-';
+    let recebido = '—';
+    if(info.credito){
+      recebido = fmtMoney(info.credito.valor) + '<div class="concil-sub">' + info.credito.pagador + ' · ' + info.credito.data + '</div>';
+    } else if(info.status === 'dinheiro'){
+      recebido = '<span class="concil-sub">pago em dinheiro</span>';
+    }
+    let extra = '';
+    if(info.override && info.override.pagador) extra = '<div class="concil-sub">terceiro: ' + info.override.pagador + '</div>';
+    if(info.override && info.override.obs) extra += '<div class="concil-sub">' + info.override.obs + '</div>';
+    const pill = '<span class="st-pill st-' + info.status + '">' + (CONCIL_LABEL[info.status]||info.status) + '</span>' + extra;
+    let acoes = '';
+    if(info.override){
+      acoes += '<button class="secondary" onclick="limparConciliacao(\'' + key + '\')">↩️ Limpar ajuste</button>';
+    } else {
+      acoes += '<button onclick="marcarConciliado(\'' + key + '\')">✅ OK</button>';
+      acoes += '<button class="secondary" onclick="marcarTerceiro(\'' + key + '\')">👥 Terceiro</button>';
+      acoes += '<button class="secondary" onclick="marcarDinheiro(\'' + key + '\')">💵 Dinheiro</button>';
+    }
+    const esperado = recebidoLivros(r);
+    let colValor = (Number(r.valor) ? fmtMoney(Number(r.valor)) : '-');
+    if(esperado > 0 && Math.abs(esperado - (Number(r.valor)||0)) > 0.01) colValor += '<div class="concil-sub">livros: recebeu ' + fmtMoney(esperado) + '</div>';
+    else if(esperado === 0 && Number(r.saldo) > 0) colValor += '<div class="concil-sub">livros: nada recebido</div>';
+    html += '<tr>' +
+      '<td>' + (r.nome || '(sem nome)') + '</td>' +
+      '<td>' + (r.acomodacao || r.unidade || '-') + '</td>' +
+      '<td>' + co + '</td>' +
+      '<td>' + colValor + '</td>' +
+      '<td>' + recebido + '</td>' +
+      '<td>' + pill + '</td>' +
+      '<td class="concil-acoes">' + acoes + '</td>' +
+      '</tr>';
+  });
+  html += '</table>';
+  tableBox.innerHTML = html;
+}
+function setOverride(keyEncoded, dados){
+  if(!isAdmin){ alert('Somente o administrador pode ajustar a conciliação.'); return; }
+  const key = decodeURIComponent(keyEncoded);
+  conciliacaoOverrides[key] = Object.assign({em:new Date().toLocaleString('pt-BR')}, dados);
+  salvarOverridesNaConfig();
+  renderConciliacao();
+}
+function marcarConciliado(key){ setOverride(key, {status:'conciliado'}); }
+function marcarDinheiro(key){
+  const obs = prompt('Confirmar recebimento em DINHEIRO. Observação (opcional):', '');
+  if(obs === null) return;
+  setOverride(key, {status:'dinheiro', obs:obs.trim()});
+}
+function marcarTerceiro(key){
+  const nome = prompt('Nome de quem efetuou o pagamento (terceiro):', '');
+  if(nome === null) return;
+  if(!nome.trim()){ alert('Informe o nome do pagador.'); return; }
+  setOverride(key, {status:'terceiro', pagador:nome.trim()});
+}
+function limparConciliacao(keyEncoded){
+  if(!isAdmin) return;
+  const key = decodeURIComponent(keyEncoded);
+  delete conciliacaoOverrides[key];
+  salvarOverridesNaConfig();
+  renderConciliacao();
 }
 
 // ---------- Dados PIX + payload EMV (para o QR Code da fatura) ----------
@@ -1340,10 +1776,12 @@ function updateSidebarUI(){
   const podeReservas = !isManutColab;
   const podeFaxinas = isAdmin || isFaxineira;
   const podeManutencao = isAdmin || isManutColab;
+  const podeFinanceiro = isAdmin;
   document.getElementById('navReservasBtn').style.display = podeReservas ? 'block' : 'none';
   document.getElementById('navFaxinasBtn').style.display = podeFaxinas ? 'block' : 'none';
   document.getElementById('navManutencaoBtn').style.display = podeManutencao ? 'block' : 'none';
-  const permitidos = {reservas:podeReservas, faxinas:podeFaxinas, manutencao:podeManutencao};
+  document.getElementById('navFinanceiroBtn').style.display = podeFinanceiro ? 'block' : 'none';
+  const permitidos = {reservas:podeReservas, faxinas:podeFaxinas, manutencao:podeManutencao, financeiro:podeFinanceiro};
   if(!permitidos[activeModulo]) irModulo(podeReservas ? 'reservas' : (podeFaxinas ? 'faxinas' : 'manutencao'));
 }
 let activeModulo = 'reservas';
@@ -1359,6 +1797,7 @@ function irModulo(mod){
   if(mod === 'reservas') render();
   else if(mod === 'faxinas') renderFaxinasList();
   else if(mod === 'manutencao'){ renderManutencaoList(); renderMateriaisList(); renderManutSemana(); }
+  else if(mod === 'financeiro') renderConciliacao();
 }
 function irManutTab(tab){
   document.querySelectorAll('.manut-tab').forEach(t => t.classList.remove('on'));
