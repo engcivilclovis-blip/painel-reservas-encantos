@@ -253,6 +253,7 @@
     <button class="btn-details" id="stockBtn" onclick="openStockModal()" style="display:none;">📦 Estoque de frigobar</button>
     <button class="btn-details" id="productsBtn" onclick="openProductsModal()" style="display:none;">🧾 Produtos do frigobar</button>
     <button class="btn-details" id="pixBtn" onclick="openPixModal()" style="display:none;">💳 Dados PIX (cobrança)</button>
+    <button class="btn-details" id="telegramBtn" onclick="openTelegramModal()" style="display:none;">🔔 Alertas no celular</button>
   </div>
 </div>
 
@@ -346,6 +347,40 @@
     <label for="pixCidadeInput">Cidade</label>
     <input type="text" id="pixCidadeInput" placeholder="Sao Joaquim" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:12px;">
     <button onclick="salvarPix()">Salvar</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="telegramModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>🔔 Alertas no celular (Telegram)</h2>
+      <button class="secondary" onclick="closeTelegramModal()">Fechar</button>
+    </div>
+    <p style="font-size:13px;color:#5a5049;">Manutenção urgente e solicitação de faxina disparam um alarme no celular do responsável, pelo Telegram (grátis).</p>
+    <details style="margin-bottom:10px;font-size:13px;">
+      <summary style="cursor:pointer;font-weight:600;">Como configurar (passo a passo)</summary>
+      <ol style="margin:8px 0 0;padding-left:18px;line-height:1.5;">
+        <li>No Telegram, fale com <b>@BotFather</b> → <b>/newbot</b> → dê um nome. Ele te dá um <b>token</b>. Cole abaixo e salve.</li>
+        <li>Cada responsável (manutenção, faxineira) abre o seu bot e manda um <b>oi</b>.</li>
+        <li>Clique em <b>"Buscar IDs recentes"</b> — vão aparecer os nomes e IDs. Copie o ID de cada um para o campo certo e salve.</li>
+        <li>Clique em <b>"Testar"</b> para confirmar o alarme.</li>
+      </ol>
+    </details>
+    <label for="tgTokenInput">Token do bot (do @BotFather)</label>
+    <input type="text" id="tgTokenInput" placeholder="123456:ABC-DEF..." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;">
+    <div class="toolbar-row" style="margin-bottom:8px;">
+      <button class="secondary" onclick="buscarChatIds()">🔎 Buscar IDs recentes</button>
+      <span id="tgChatsInfo" style="font-size:12px;color:#5a5049;"></span>
+    </div>
+    <div id="tgChatsList" style="font-size:12px;margin-bottom:10px;"></div>
+    <label for="tgManutInput">Chat ID — responsável pela manutenção</label>
+    <input type="text" id="tgManutInput" placeholder="ex.: 12345678" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+    <label for="tgFaxinaInput">Chat ID — faxineira</label>
+    <input type="text" id="tgFaxinaInput" placeholder="ex.: 87654321" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+    <label for="tgAdminInput">Chat ID — administrador (recebe cópia de tudo)</label>
+    <input type="text" id="tgAdminInput" placeholder="ex.: 11223344" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:12px;">
+    <button onclick="salvarTelegram()">Salvar</button>
+    <button class="secondary" onclick="testarTelegram()">📲 Testar (envia para o admin)</button>
   </div>
 </div>
 
@@ -843,6 +878,10 @@ function refreshFrigobarCache(){
         if(config.pixKey !== undefined) pixKey = config.pixKey || '';
         if(config.pixNome !== undefined && config.pixNome) pixNome = config.pixNome;
         if(config.pixCidade !== undefined && config.pixCidade) pixCidade = config.pixCidade;
+        if(config.telegramToken !== undefined) telegramToken = config.telegramToken || '';
+        if(config.telegramChatManutencao !== undefined) telegramChatManutencao = config.telegramChatManutencao || '';
+        if(config.telegramChatFaxina !== undefined) telegramChatFaxina = config.telegramChatFaxina || '';
+        if(config.telegramChatAdmin !== undefined) telegramChatAdmin = config.telegramChatAdmin || '';
         carregarConciliacaoDaConfig(config);
       }
       renderStock();
@@ -1073,12 +1112,32 @@ function faxinaCardHtml(f){
   if(f.dataExecucao && podeVerFinanceiroFaxina()){
     financeiro = '<div class="meta">Valor: ' + fmtMoney(f.valor) + (podeVerPagamento() ? ' · ' + (f.pago ? 'Pago' : 'Não pago') : '') + '</div>';
   }
+  const avisar = (isAdmin && !f.dataExecucao)
+    ? `<button class="mini secondary" style="margin-top:6px;" onclick="event.stopPropagation(); avisarFaxineira('${encodeURIComponent(f.cabana)}','${encodeURIComponent(f.hospede||'')}','${f.checkout ? f.checkout.toLocaleDateString('pt-BR') : ''}')">🔔 Avisar faxineira</button>`
+    : '';
   return `<div class="card" onclick="abrirFaxinaDetalhe('${f.key}')" title="Clique para ver detalhes desta faxina">
     <div class="cab">${f.cabana}</div>
     <div class="meta">${f.hospede}</div>
     <div class="badges">${statusBadge}</div>
     ${financeiro}
+    ${avisar}
   </div>`;
+}
+// Envia alerta no celular da faxineira pedindo a faxina de uma cabana.
+function avisarFaxineira(cabanaEnc, hospedeEnc, checkoutBR){
+  if(!isAdmin){ alert('Somente o administrador pode avisar a faxineira.'); return; }
+  const cabana = decodeURIComponent(cabanaEnc);
+  const hospede = decodeURIComponent(hospedeEnc||'');
+  const obs = prompt('Observação para a faxineira (opcional):', '');
+  if(obs === null) return;
+  const msg = '🧹 <b>FAXINA SOLICITADA</b>\n' + cabana +
+    (checkoutBR ? '\nCheck-out: ' + checkoutBR : '') +
+    (hospede ? '\nHóspede: ' + hospede : '') +
+    (obs.trim() ? '\nObs: ' + obs.trim() : '') +
+    '\nSolicitado às ' + new Date().toLocaleString('pt-BR');
+  enviarAlertaTelegram('faxina', msg).then(function(){
+    alert('Faxineira avisada no celular (se o Telegram estiver configurado).');
+  });
 }
 function abrirFaxinaDetalhe(key){
   openDetailsModal(key);
@@ -1592,6 +1651,56 @@ function salvarPix(){
     alert('Dados PIX salvos (neste navegador).');
   }
 }
+// ---------- Alertas no celular (Telegram) ----------
+let telegramToken = '', telegramChatManutencao = '', telegramChatFaxina = '', telegramChatAdmin = '';
+function openTelegramModal(){
+  document.getElementById('tgTokenInput').value = telegramToken;
+  document.getElementById('tgManutInput').value = telegramChatManutencao;
+  document.getElementById('tgFaxinaInput').value = telegramChatFaxina;
+  document.getElementById('tgAdminInput').value = telegramChatAdmin;
+  document.getElementById('tgChatsList').innerHTML = '';
+  document.getElementById('tgChatsInfo').textContent = '';
+  document.getElementById('telegramModal').style.display = 'flex';
+}
+function closeTelegramModal(){ document.getElementById('telegramModal').style.display = 'none'; }
+function salvarTelegram(){
+  if(!isAdmin){ alert('Somente administradores podem configurar os alertas.'); return; }
+  telegramToken = document.getElementById('tgTokenInput').value.trim();
+  telegramChatManutencao = document.getElementById('tgManutInput').value.trim();
+  telegramChatFaxina = document.getElementById('tgFaxinaInput').value.trim();
+  telegramChatAdmin = document.getElementById('tgAdminInput').value.trim();
+  if(!apiAvailable()){ alert('Configuração de alertas exige a API (planilha) ativa.'); return; }
+  Promise.all([
+    apiSalvarConfig('telegramToken', telegramToken),
+    apiSalvarConfig('telegramChatManutencao', telegramChatManutencao),
+    apiSalvarConfig('telegramChatFaxina', telegramChatFaxina),
+    apiSalvarConfig('telegramChatAdmin', telegramChatAdmin)
+  ]).then(() => alert('Alertas salvos e sincronizados. Clique em "Testar" para confirmar.'))
+    .catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
+}
+function buscarChatIds(){
+  if(!apiAvailable()){ alert('Exige a API (planilha) ativa.'); return; }
+  const token = document.getElementById('tgTokenInput').value.trim();
+  if(!token){ alert('Cole e salve o token do bot primeiro.'); return; }
+  // Garante que o robô tenha o token salvo antes de buscar.
+  const info = document.getElementById('tgChatsInfo');
+  info.textContent = '⏳ buscando...';
+  apiSalvarConfig('telegramToken', token).then(function(){
+    return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=telegramChats&_=' + Date.now(), null, 20000).then(r => r.json());
+  }).then(function(r){
+    if(!r || !r.ok){ info.textContent = '❌ ' + ((r && r.error) || 'erro'); return; }
+    info.textContent = r.chats.length + ' conversa(s) encontrada(s).';
+    document.getElementById('tgChatsList').innerHTML = r.chats.length
+      ? '<table class="fb-table"><tr><th>Nome</th><th>Chat ID</th></tr>' + r.chats.map(c => '<tr><td>' + c.nome + '</td><td><b>' + c.chatId + '</b></td></tr>').join('') + '</table><div style="color:#8a7d6f;margin-top:4px;">Copie o ID de cada pessoa para o campo certo abaixo.</div>'
+      : '<div style="color:#8a7d6f;">Ninguém falou com o bot ainda. Cada responsável precisa abrir o bot e mandar um "oi".</div>';
+  }).catch(function(){ info.textContent = '❌ falha na conexão'; });
+}
+function testarTelegram(){
+  if(!isAdmin){ return; }
+  if(!apiAvailable()){ alert('Exige a API ativa.'); return; }
+  enviarAlertaTelegram('admin', '✅ Teste de alerta do Painel Encantos — ' + new Date().toLocaleString('pt-BR'))
+    .then(function(){ alert('Enviei um teste para o administrador. Confira o Telegram do celular.'); });
+}
 function tlv_(id, v){ return id + String(v.length).padStart(2,'0') + v; }
 function crc16_(s){
   let c = 0xFFFF;
@@ -1697,7 +1806,12 @@ function criarOrdemServicoUI(){
     renderManutSemana();
   };
   if(apiAvailable()){
-    apiCriarOrdemServico(registro).then(aoTerminar).catch(() => alert('Não foi possível criar agora. Verifique sua conexão e tente novamente.'));
+    apiCriarOrdemServico(registro).then(function(){
+      if(tipo === 'emergencia'){
+        enviarAlertaTelegram('manutencao', '🔧 <b>MANUTENÇÃO URGENTE</b>\n' + cabana + '\n' + descricao + '\nAberto por: Administrador — ' + new Date().toLocaleString('pt-BR'));
+      }
+      aoTerminar();
+    }).catch(() => alert('Não foi possível criar agora. Verifique sua conexão e tente novamente.'));
   } else {
     ordensServicoLocal.push(Object.assign({id:'os'+Date.now()}, registro));
     saveOrdensServicoLocal();
@@ -1903,6 +2017,7 @@ function updateAdminUI(){
   document.getElementById('stockBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('productsBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('pixBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('telegramBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('syncReservasBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   const fbtn = document.getElementById('faxineiraToggleBtn');
   fbtn.textContent = isFaxineira ? '🧹 Colaborador da Limpeza (clique para sair)' : '🧹 Entrar como colaborador da limpeza';
@@ -2331,6 +2446,12 @@ function salvarObsManutencao(key, label, cabana, texto){
     saveFaxinasLocal();
   }
 }
+// Dispara um alerta no celular do responsável (Telegram), sem travar a ação
+// se falhar. destino: 'manutencao' | 'faxina' | 'admin'.
+function enviarAlertaTelegram(destino, mensagem){
+  if(!apiAvailable()) return Promise.resolve();
+  return apiPost({action:'alertaTelegram', destino:destino, mensagem:mensagem}).catch(function(){});
+}
 function solicitarManutencao(key, labelEncoded, cabanaEncoded){
   const label = decodeURIComponent(labelEncoded);
   const cabana = decodeURIComponent(cabanaEncoded);
@@ -2339,7 +2460,10 @@ function solicitarManutencao(key, labelEncoded, cabanaEncoded){
   const registro = {cabana:cabana, reservaChave:key, reservaLabel:label, descricao:descricao, data:new Date().toLocaleString('pt-BR'), status:'aberta', tipo:'emergencia', dataAgendada:''};
   if(apiAvailable()){
     apiCriarOrdemServico(registro)
-      .then(() => alert('Solicitação de manutenção registrada.'))
+      .then(() => {
+        enviarAlertaTelegram('manutencao', '🔧 <b>MANUTENÇÃO URGENTE</b>\n' + cabana + '\n' + descricao + '\nAberto por: ' + (isFaxineira?'Colaborador da limpeza':(isManutColab?'Colaborador de manutenção':'Administrador')) + ' — ' + new Date().toLocaleString('pt-BR'));
+        alert('Solicitação de manutenção registrada. O responsável foi avisado no celular (se o Telegram estiver configurado).');
+      })
       .catch(() => alert('Não foi possível registrar agora. Verifique sua conexão e tente novamente.'));
   } else {
     ordensServicoLocal.push(Object.assign({id:'os'+Date.now()}, registro));

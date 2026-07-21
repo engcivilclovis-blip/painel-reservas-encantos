@@ -71,6 +71,8 @@ function doGet(e){
     result = getReservasCsv_();
   } else if(action === 'reservasPdf'){
     result = getReservasPdf_();
+  } else if(action === 'telegramChats'){
+    result = getTelegramChats_();
   } else {
     result = {error:'ação inválida'};
   }
@@ -108,6 +110,8 @@ function doPost(e){
     result = concluirPedidoMaterial_(body.id);
   } else if(body.action === 'atualizarReservasEmail'){
     result = atualizarReservasDoEmail();
+  } else if(body.action === 'alertaTelegram'){
+    result = alertaTelegram_(body);
   } else {
     result = {ok:false, error:'ação inválida'};
   }
@@ -466,6 +470,62 @@ function getReservasPdf_(){
     de: escolhido.de,
     atualizadoEm: Utilities.formatDate(escolhido.quando, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
   };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ALERTAS NO CELULAR (Telegram)
+   O admin cria um bot no @BotFather e guarda o token na aba Config
+   (chave telegramToken). Cada responsável dá /start no bot; o chat_id
+   dele é guardado em telegramChatManutencao / telegramChatFaxina /
+   telegramChatAdmin. Ao abrir uma manutenção de emergência ou avisar
+   a faxineira, o painel chama action=alertaTelegram e o robô envia a
+   mensagem — que toca o alarme do Telegram no celular do responsável.
+   ═══════════════════════════════════════════════════════════════ */
+function enviarTelegram_(chatId, texto){
+  var cfg = getConfig_();
+  var token = cfg.telegramToken;
+  if(!token) return {ok:false, error:'Bot do Telegram não configurado (falta telegramToken na Config).'};
+  if(!chatId) return {ok:false, error:'Destinatário sem chat_id configurado.'};
+  var url = 'https://api.telegram.org/bot' + token + '/sendMessage';
+  var resp = UrlFetchApp.fetch(url, {
+    method:'post', muteHttpExceptions:true,
+    payload:{chat_id:String(chatId), text:texto, parse_mode:'HTML', disable_web_page_preview:'true'}
+  });
+  var ok = resp.getResponseCode() === 200;
+  return {ok:ok, code:resp.getResponseCode(), resposta: ok ? 'enviado' : resp.getContentText().slice(0,200)};
+}
+function alertaTelegram_(body){
+  var cfg = getConfig_();
+  var destino = body.destino || 'admin';
+  var chat = destino === 'manutencao' ? cfg.telegramChatManutencao
+           : destino === 'faxina' ? cfg.telegramChatFaxina
+           : cfg.telegramChatAdmin;
+  // Sempre manda também para o admin, se configurado e diferente (cópia de segurança).
+  var r = enviarTelegram_(chat, body.mensagem || '(sem mensagem)');
+  if(cfg.telegramChatAdmin && cfg.telegramChatAdmin !== chat && destino !== 'admin' && body.copiaAdmin !== false){
+    enviarTelegram_(cfg.telegramChatAdmin, body.mensagem || '(sem mensagem)');
+  }
+  return r;
+}
+// Helper de configuração: lê as últimas mensagens recebidas pelo bot e devolve
+// os chat_id + nome de quem escreveu, para o admin descobrir o id de cada pessoa
+// (cada responsável manda um "oi" para o bot e aparece aqui).
+function getTelegramChats_(){
+  var cfg = getConfig_();
+  var token = cfg.telegramToken;
+  if(!token) return {ok:false, error:'Falta o token do bot (telegramToken).', chats:[]};
+  var resp = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/getUpdates', {muteHttpExceptions:true});
+  if(resp.getResponseCode() !== 200) return {ok:false, error:'Token inválido? code=' + resp.getResponseCode(), chats:[]};
+  var data = JSON.parse(resp.getContentText());
+  var vistos = {}, chats = [];
+  (data.result || []).forEach(function(u){
+    var m = u.message || u.edited_message || (u.my_chat_member ? u.my_chat_member : null);
+    var c = m && m.chat ? m.chat : (m && m.from ? m.from : null);
+    if(!c || !c.id || vistos[c.id]) return;
+    vistos[c.id] = true;
+    chats.push({chatId:String(c.id), nome:[c.first_name, c.last_name].filter(Boolean).join(' ') || c.title || c.username || '(sem nome)'});
+  });
+  return {ok:true, chats:chats, configurado:{manutencao:!!cfg.telegramChatManutencao, faxina:!!cfg.telegramChatFaxina, admin:!!cfg.telegramChatAdmin}};
 }
 
 function gravarReservasCsv_(texto){
