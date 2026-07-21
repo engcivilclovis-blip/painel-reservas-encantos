@@ -746,13 +746,47 @@ const COLS_PDF = [
   {k:'status', x:495}, {k:'celular', x:544}, {k:'previsao', x:601}, {k:'valor', x:643},
   {k:'saldo', x:682}, {k:'noites', x:721}, {k:'obs', x:754}
 ];
-function colunaPorX_(x){
-  let melhor = COLS_PDF[0], dist = Math.abs(x - COLS_PDF[0].x);
-  for(let i=1;i<COLS_PDF.length;i++){ const d = Math.abs(x - COLS_PDF[i].x); if(d < dist){ dist=d; melhor=COLS_PDF[i]; } }
+function colunaPorX_(x, cols){
+  const lista = cols || COLS_PDF;
+  let melhor = lista[0], dist = Math.abs(x - lista[0].x);
+  for(let i=1;i<lista.length;i++){ const d = Math.abs(x - lista[i].x); if(d < dist){ dist=d; melhor=lista[i]; } }
   return melhor.k;
 }
-// Palavras que aparecem só no cabeçalho e podem cair em colunas úteis — ignoradas.
-const CAB_PDF = {'Primeira':1,'Noite':1,'Acomodação':1,'Nome':1,'Sobrenome':1,'Última':1,'Adultos':1,'Crianças':1,'E-mail':1,'Status':1,'Celular':1,'Valor':1,'Saldo A':1,'Pagar':1,'BRL':1,'Noites':1,'Hóspede -':1,'Observações':1};
+// O relatório pode vir em PORTUGUÊS (envio manual) ou INGLÊS (rotina automática),
+// e a largura das colunas muda conforme o conteúdo. Por isso as colunas são
+// detectadas pelo próprio cabeçalho do PDF, nos dois idiomas.
+const CAB_MAP_PDF = {
+  'Primeira':'checkin','First':'checkin',
+  'Acomodação':'acom','Room':'acom',
+  'Nome':'nome','First Name':'nome',
+  'Sobrenome':'sobrenome','Last Name':'sobrenome',
+  'Última':'checkout','Last':'checkout',
+  'Adultos':'adultos','Adults':'adultos',
+  'Crianças':'criancas','Children':'criancas',
+  'E-mail':'email','Email':'email',
+  'Status':'status',
+  'Celular':'celular','Mobile':'celular',
+  'Previsão':'previsao','Arrival':'previsao',
+  'Valor':'valor','Price':'valor',
+  'Saldo A':'saldo','Invoice':'saldo',
+  'Noites':'noites','Nights':'noites',
+  'Hóspede -':'obs','Guest':'obs'
+};
+// Palavras que só existem no cabeçalho (nos 2 idiomas) — comparadas com
+// diferença de maiúsculas para não remover "DE OLIVEIRA" de um sobrenome.
+const CAB_PDF = {};
+['Primeira','Noite','Acomodação','Nome','Sobrenome','Última','Adultos','Crianças','E-mail','Status','Celular','Previsão','de','Chegada','Valor','Saldo A','Pagar','BRL','Noites','Hóspede -','Observações',
+ 'First','Night','Room','First Name','Last Name','Last','Adults','Children','Email','Mobile','Arrival','Time','Price','Invoice','Balance','Nights','Guest','Comments'
+].forEach(function(w){ CAB_PDF[w] = 1; });
+// Detecta a posição x de cada coluna a partir do cabeçalho do próprio PDF.
+function detectarColunasPdf_(itens){
+  const vistos = {}, cols = [];
+  itens.forEach(function(o){
+    const k = CAB_MAP_PDF[o.s];
+    if(k && !vistos[k]){ vistos[k] = true; cols.push({k:k, x:o.x}); }
+  });
+  return cols.length >= 8 ? cols : null;
+}
 // Extrai todos os fragmentos de texto do PDF com suas coordenadas (todas as páginas).
 function extrairItensPdf(arrayBuffer){
   return carregarPdfJs().then(function(pdfjsLib){
@@ -778,13 +812,19 @@ function extrairItensPdf(arrayBuffer){
     return cadeia.then(function(){ return itens; });
   });
 }
-function ehDataPdf_(s){ return /^(0?[1-9]|[12]\d|3[01])\s+[A-Za-z]{3,}$/.test(s); }
+// Início de reserva: na coluna de check-in aparece o dia. Pode vir junto com o
+// mês ("14 Mar", português) ou só o número ("14", inglês, com o mês na linha
+// seguinte). O ano (2026) não entra porque não é um dia válido.
+function ehDataPdf_(s){
+  return /^(0?[1-9]|[12]\d|3[01])$/.test(s) || /^(0?[1-9]|[12]\d|3[01])\s+[A-Za-z]{3,}$/.test(s);
+}
 function parseReservasPdfItens(itens){
-  itens = itens.filter(function(o){ return !/^Página \d+ de \d+$/.test(o.s) && !CAB_PDF[o.s]; });
+  const cols = detectarColunasPdf_(itens); // usa o cabeçalho do próprio PDF
+  itens = itens.filter(function(o){ return !/^(Página|Page) \d+ (de|of) \d+$/.test(o.s) && !CAB_PDF[o.s]; });
   itens.sort(function(a,b){ return a.p-b.p || b.y-a.y || a.x-b.x; }); // ordem de leitura
   const regs = []; let atual = null;
   itens.forEach(function(o){
-    const col = colunaPorX_(o.x);
+    const col = colunaPorX_(o.x, cols);
     if(col === 'checkin' && ehDataPdf_(o.s)){
       atual = {checkin:[],acom:[],nome:[],sobrenome:[],checkout:[],email:[],status:[],valor:[],saldo:[],noites:[]};
       regs.push(atual);
@@ -796,13 +836,26 @@ function parseReservasPdfItens(itens){
   return regs.map(function(r){
     const email = join(r.email);
     return {
-      checkin: join(r.checkin), checkout: join(r.checkout),
+      checkin: join(r.checkin),
+      // ATENÇÃO: o relatório traz "Última Noite" (a última noite dormida), que é
+      // um dia ANTES da saída. O check-out real é Última Noite + 1 dia — é isso
+      // que o calendário e as faxinas usam.
+      checkout: checkoutDaUltimaNoite_(join(r.checkout), join(r.checkin), join(r.noites)),
       acomodacao: join(r.acom), nome: (join(r.nome)+' '+join(r.sobrenome)).trim(),
       status: join(r.status), email: email,
       valor: join(r.valor), saldo: join(r.saldo), noites: join(r.noites),
       referencia: plataformaPorEmail_(email)
     };
   }).filter(function(r){ return r.checkin && r.noites; });
+}
+// Converte "Última Noite" em data de check-out (última noite + 1 dia).
+// Se a última noite não vier, cai para check-in + nº de noites.
+function checkoutDaUltimaNoite_(ultimaNoite, checkin, noites){
+  let base = parseDate(ultimaNoite), dias = 1;
+  if(!base){ base = parseDate(checkin); dias = Number(noites) || 1; }
+  if(!base) return ultimaNoite;
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + dias);
+  return d.getDate().toString().padStart(2,'0') + '/' + (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getFullYear();
 }
 // Fluxo completo: pega o PDF no robô, lê com pdf.js (por coordenadas), parseia e carrega.
 function carregarReservasDoPdf(){
