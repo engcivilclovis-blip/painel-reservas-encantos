@@ -414,9 +414,15 @@
     <label>Adicionar / editar produto</label>
     <div class="frigobar-add">
       <input type="text" id="prodNome" placeholder="Nome do produto">
-      <input type="number" id="prodPreco" placeholder="Preço (R$)" step="0.01" style="width:110px">
+      <input type="number" id="prodCusto" placeholder="Custo (R$)" step="0.01" style="width:110px" title="Quanto você paga no produto — usado para calcular o lucro">
+      <input type="number" id="prodPreco" placeholder="Preço (R$)" step="0.01" style="width:110px" title="Quanto o hóspede paga">
       <button onclick="salvarProdutoUI()">Salvar</button>
       <button class="secondary" id="cancelProdBtn" onclick="cancelarEdicaoProduto()" style="display:none;">Cancelar edição</button>
+    </div>
+    <hr>
+    <div class="toolbar-row" style="margin-bottom:0;">
+      <button class="secondary" onclick="cargaInicialFrigobar()">🚀 Carga inicial do catálogo</button>
+      <span class="status" style="font-size:12px;">Cadastra de uma vez os produtos padrão da pousada (com custo, onde conhecido). Use quando o catálogo estiver vazio.</span>
     </div>
   </div>
 </div>
@@ -935,6 +941,7 @@ function refreshFrigobarCache(){
         if(config.telegramChatManutencao !== undefined) telegramChatManutencao = config.telegramChatManutencao || '';
         if(config.telegramChatFaxina !== undefined) telegramChatFaxina = config.telegramChatFaxina || '';
         if(config.telegramChatAdmin !== undefined) telegramChatAdmin = config.telegramChatAdmin || '';
+        if(config.frigobarCustos){ try { frigobarCustos = JSON.parse(config.frigobarCustos) || {}; } catch(e){} }
         carregarConciliacaoDaConfig(config);
       }
       renderStock();
@@ -966,12 +973,37 @@ function openStockModal(){
 function closeStockModal(){
   document.getElementById('stockModal').style.display = 'none';
 }
+// Lista de compras: o que está no/abaixo do mínimo, quanto repor e o custo.
+function renderListaCompras(){
+  const faltando = estoqueCache.filter(it => it.estoque <= it.minimo);
+  if(!faltando.length) return '<div class="status" style="background:#eaf6ec;border:1px solid #b7ddbf;color:#1e6b30;padding:6px 10px;border-radius:6px;display:inline-block;">✅ Nenhuma reposição necessária.</div>';
+  const porItem = {};
+  faltando.forEach(it => {
+    const repor = Math.max(1, (it.minimo * 2) - it.estoque); // repõe até o dobro do mínimo
+    if(!porItem[it.item]) porItem[it.item] = {qtd:0, unidades:[]};
+    porItem[it.item].qtd += repor;
+    porItem[it.item].unidades.push(it.cabana + ' (' + it.estoque + ')');
+  });
+  let custoTotal = 0;
+  const linhas = Object.keys(porItem).sort().map(item => {
+    const c = custoDoProduto(item), sub = c * porItem[item].qtd;
+    custoTotal += sub;
+    return '<tr><td>' + item + '</td><td><b>' + porItem[item].qtd + '</b></td>' +
+      '<td>' + (c ? fmtMoney(sub) : '<span style="color:#c25b00;">custo?</span>') + '</td>' +
+      '<td style="font-size:11px;color:#8a7d6f;">' + porItem[item].unidades.join(', ') + '</td></tr>';
+  }).join('');
+  return '<h3 style="font-family:\'Playfair Display\',Georgia,serif;font-size:15px;margin:0 0 6px;">🛒 Lista de compras</h3>' +
+    '<table class="fb-table"><thead><tr><th>Item</th><th>Comprar</th><th>Custo est.</th><th>Onde falta</th></tr></thead><tbody>' +
+    linhas + '</tbody></table>' +
+    '<div style="margin-top:6px;font-size:13px;"><b>Custo estimado total: ' + fmtMoney(custoTotal) + '</b></div>';
+}
 function renderStockList(){
   const box = document.getElementById('stockList');
-  if(!estoqueCache.length){ box.innerHTML = '<p class="empty">Nenhum item registrado ainda.</p>'; return; }
+  if(!estoqueCache.length){ box.innerHTML = '<p class="empty">Nenhum item registrado ainda. Cadastre o catálogo em "🧾 Produtos do frigobar" e registre abaixo a quantidade que existe hoje em cada unidade.</p>'; return; }
+  const compras = renderListaCompras();
   const byCabana = {};
   estoqueCache.forEach(it => { (byCabana[it.cabana] = byCabana[it.cabana] || []).push(it); });
-  box.innerHTML = Object.keys(byCabana).sort().map(cab => {
+  box.innerHTML = compras + '<hr>' + Object.keys(byCabana).sort().map(cab => {
     const rows = byCabana[cab].map(it => '<tr><td>' + it.item + '</td><td>' + it.estoque + '</td><td>' + it.minimo + '</td><td>' + (it.estoque<=it.minimo?'⚠️ repor':'') + '</td></tr>').join('');
     return '<label style="margin-top:10px;">' + cab + '</label><table class="fb-table"><thead><tr><th>Item</th><th>Estoque</th><th>Mínimo</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
   }).join('');
@@ -1008,14 +1040,35 @@ function closeProductsModal(){
   document.getElementById('productsModal').style.display = 'none';
   cancelarEdicaoProduto();
 }
+// Custo de cada produto (quanto a pousada paga). Fica na Config, em JSON, para
+// sincronizar entre aparelhos sem precisar mexer no robô.
+let frigobarCustos = {};
+function custoDoProduto(nome){ return Number(frigobarCustos[nome]) || 0; }
+function salvarCustosFrigobar(){
+  if(!apiAvailable()) return Promise.resolve();
+  return apiSalvarConfig('frigobarCustos', JSON.stringify(frigobarCustos));
+}
 function renderProductsList(){
   const box = document.getElementById('productsList');
-  if(!productCatalog.length){ box.innerHTML = '<p class="empty">Nenhum produto cadastrado.</p>'; return; }
-  box.innerHTML = '<table class="fb-table"><thead><tr><th>Item</th><th>Preço</th><th></th></tr></thead><tbody>' +
-    productCatalog.map(p => '<tr><td>' + p.nome + '</td><td>' + fmtMoney(p.preco) + '</td><td>' +
+  if(!productCatalog.length){ box.innerHTML = '<p class="empty">Nenhum produto cadastrado. Use a <b>Carga inicial</b> abaixo.</p>'; return; }
+  let semCusto = 0;
+  const linhas = productCatalog.map(p => {
+    const custo = custoDoProduto(p.nome);
+    const preco = Number(p.preco) || 0;
+    if(!custo) semCusto++;
+    const lucro = preco - custo;
+    const margem = (custo && preco) ? Math.round((lucro / preco) * 100) : null;
+    return '<tr><td>' + p.nome + '</td>' +
+      '<td>' + (custo ? fmtMoney(custo) : '<span style="color:#c25b00;">informar</span>') + '</td>' +
+      '<td>' + fmtMoney(preco) + '</td>' +
+      '<td>' + (custo ? fmtMoney(lucro) + ' <span style="color:#8a7d6f;">(' + margem + '%)</span>' : '—') + '</td>' +
+      '<td style="white-space:nowrap;">' +
       '<button class="mini secondary" onclick="editarProdutoUI(\'' + encodeURIComponent(p.nome) + '\')">editar</button> ' +
-      '<button class="mini secondary" onclick="removerProdutoUI(\'' + encodeURIComponent(p.nome) + '\')">remover</button></td></tr>').join('') +
-    '</tbody></table>';
+      '<button class="mini secondary" onclick="removerProdutoUI(\'' + encodeURIComponent(p.nome) + '\')">remover</button></td></tr>';
+  }).join('');
+  box.innerHTML = '<table class="fb-table"><thead><tr><th>Item</th><th>Custo</th><th>Preço</th><th>Lucro</th><th></th></tr></thead><tbody>' +
+    linhas + '</tbody></table>' +
+    (semCusto ? '<div style="font-size:12px;color:#c25b00;margin-top:6px;">⚠️ ' + semCusto + ' produto(s) sem custo informado — sem isso não dá para calcular lucro. Clique em "editar" e preencha o custo.</div>' : '');
 }
 function editarProdutoUI(nomeEncoded){
   const nome = decodeURIComponent(nomeEncoded);
@@ -1024,21 +1077,58 @@ function editarProdutoUI(nomeEncoded){
   editingProdutoNome = nome;
   document.getElementById('prodNome').value = p.nome;
   document.getElementById('prodPreco').value = p.preco;
+  document.getElementById('prodCusto').value = custoDoProduto(p.nome) || '';
   document.getElementById('cancelProdBtn').style.display = 'inline-block';
 }
 function cancelarEdicaoProduto(){
   editingProdutoNome = null;
   document.getElementById('prodNome').value = '';
   document.getElementById('prodPreco').value = '';
+  document.getElementById('prodCusto').value = '';
   document.getElementById('cancelProdBtn').style.display = 'none';
+}
+// Catálogo padrão da pousada, com os custos que vieram do sistema antigo.
+// Os que não tinham custo conhecido ficam em 0 para o admin preencher.
+const CATALOGO_INICIAL = [
+  {nome:'ENCANTOS DE ALTITUDE Sauvignon Blanc', preco:159, custo:95},
+  {nome:'ENCANTOS DE ALTITUDE Merlot', preco:165, custo:95},
+  {nome:'ENCANTOS DE ALTITUDE Espumante Brut 750ml', preco:65, custo:0},
+  {nome:'ENCANTOS DE ALTITUDE Cerveja Artesanal 350ml', preco:12, custo:0},
+  {nome:'Água Mineral 500ml', preco:4.5, custo:1.25},
+  {nome:'Água com Gás 500ml', preco:4.5, custo:1.25},
+  {nome:'Chips de Maçã São Joaquim (40g)', preco:12, custo:0},
+  {nome:'Chocolate Artesanal 80g', preco:25, custo:0},
+  {nome:'CESTA DE CAFÉ DA MANHA', preco:145, custo:0}
+];
+function cargaInicialFrigobar(){
+  if(!isAdmin){ alert('Somente administradores podem fazer a carga inicial.'); return; }
+  if(!apiAvailable()){ alert('A carga inicial precisa da planilha (API) ativa.'); return; }
+  const jaTem = productCatalog.filter(p => CATALOGO_INICIAL.some(c => c.nome === p.nome)).length;
+  if(!confirm('Cadastrar ' + CATALOGO_INICIAL.length + ' produtos padrão no catálogo?' +
+      (jaTem ? '\n\n' + jaTem + ' já existe(m) e terão o preço/custo atualizados.' : '') +
+      '\n\nOs custos conhecidos (águas e vinhos) já vêm preenchidos; os demais você informa depois.')) return;
+  CATALOGO_INICIAL.forEach(c => { if(c.custo) frigobarCustos[c.nome] = c.custo; });
+  const salvarUm = i => (i >= CATALOGO_INICIAL.length)
+    ? Promise.resolve()
+    : apiSalvarProduto(CATALOGO_INICIAL[i].nome, CATALOGO_INICIAL[i].preco, null).then(() => salvarUm(i+1));
+  salvarUm(0)
+    .then(() => salvarCustosFrigobar())
+    .then(() => reloadProdutos())
+    .then(() => alert('Catálogo cadastrado e sincronizado!\n\nPróximo passo: abra "📦 Estoque de frigobar" e registre a quantidade que existe hoje em cada cabana.'))
+    .catch(() => alert('Não foi possível concluir a carga agora. Verifique a conexão e tente de novo.'));
 }
 function salvarProdutoUI(){
   if(!isAdmin){ alert('Somente administradores podem editar produtos.'); return; }
   const nome = document.getElementById('prodNome').value.trim();
   const preco = parseFloat(document.getElementById('prodPreco').value);
+  const custo = parseFloat(document.getElementById('prodCusto').value);
   if(!nome || isNaN(preco)){ alert('Informe nome e preço válidos.'); return; }
   if(apiAvailable()){
+    // o custo fica na Config (o robô não precisa mudar); nome/preço na planilha
+    if(editingProdutoNome && editingProdutoNome !== nome) delete frigobarCustos[editingProdutoNome];
+    if(!isNaN(custo) && custo > 0) frigobarCustos[nome] = custo; else delete frigobarCustos[nome];
     apiSalvarProduto(nome, preco, editingProdutoNome)
+      .then(() => salvarCustosFrigobar())
       .then(() => { cancelarEdicaoProduto(); reloadProdutos(); })
       .catch(() => alert('Não foi possível salvar agora. Verifique sua conexão e tente novamente.'));
   } else {
