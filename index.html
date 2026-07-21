@@ -695,12 +695,81 @@ function reservasPdfParaCsv(registros){
   });
   return linhas.join('\n');
 }
-// Fluxo completo: pega o PDF no robô, lê com pdf.js, parseia e carrega no painel.
+// ---- Parser por coordenadas (robusto) ----
+// O pdf.js serializa a tabela por linhas visuais, com cada célula na coluna x
+// do seu cabeçalho. Em vez de regex sobre texto achatado (que quebra quando o
+// nome/data ocupa várias linhas), montamos cada coluna pelo x do fragmento.
+// x aproximado de cada coluna do relatório "Painel - Reservas (auto)":
+const COLS_PDF = [
+  {k:'checkin', x:36}, {k:'acom', x:76}, {k:'nome', x:136}, {k:'sobrenome', x:191},
+  {k:'checkout', x:243}, {k:'adultos', x:275}, {k:'criancas', x:313}, {k:'email', x:355},
+  {k:'status', x:495}, {k:'celular', x:544}, {k:'previsao', x:601}, {k:'valor', x:643},
+  {k:'saldo', x:682}, {k:'noites', x:721}, {k:'obs', x:754}
+];
+function colunaPorX_(x){
+  let melhor = COLS_PDF[0], dist = Math.abs(x - COLS_PDF[0].x);
+  for(let i=1;i<COLS_PDF.length;i++){ const d = Math.abs(x - COLS_PDF[i].x); if(d < dist){ dist=d; melhor=COLS_PDF[i]; } }
+  return melhor.k;
+}
+// Palavras que aparecem só no cabeçalho e podem cair em colunas úteis — ignoradas.
+const CAB_PDF = {'Primeira':1,'Noite':1,'Acomodação':1,'Nome':1,'Sobrenome':1,'Última':1,'Adultos':1,'Crianças':1,'E-mail':1,'Status':1,'Celular':1,'Valor':1,'Saldo A':1,'Pagar':1,'BRL':1,'Noites':1,'Hóspede -':1,'Observações':1};
+// Extrai todos os fragmentos de texto do PDF com suas coordenadas (todas as páginas).
+function extrairItensPdf(arrayBuffer){
+  return carregarPdfJs().then(function(pdfjsLib){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    return pdfjsLib.getDocument({data:arrayBuffer}).promise;
+  }).then(function(pdf){
+    const itens = [];
+    let cadeia = Promise.resolve();
+    for(let p=1;p<=pdf.numPages;p++){
+      (function(pg){
+        cadeia = cadeia.then(function(){
+          return pdf.getPage(pg).then(function(page){
+            return page.getTextContent().then(function(c){
+              c.items.forEach(function(it){
+                const s = (it.str||'').trim();
+                if(s) itens.push({p:pg, x:Math.round(it.transform[4]), y:Math.round(it.transform[5]), s:s});
+              });
+            });
+          });
+        });
+      })(p);
+    }
+    return cadeia.then(function(){ return itens; });
+  });
+}
+function ehDataPdf_(s){ return /^(0?[1-9]|[12]\d|3[01])\s+[A-Za-z]{3,}$/.test(s); }
+function parseReservasPdfItens(itens){
+  itens = itens.filter(function(o){ return !/^Página \d+ de \d+$/.test(o.s) && !CAB_PDF[o.s]; });
+  itens.sort(function(a,b){ return a.p-b.p || b.y-a.y || a.x-b.x; }); // ordem de leitura
+  const regs = []; let atual = null;
+  itens.forEach(function(o){
+    const col = colunaPorX_(o.x);
+    if(col === 'checkin' && ehDataPdf_(o.s)){
+      atual = {checkin:[],acom:[],nome:[],sobrenome:[],checkout:[],email:[],status:[],valor:[],saldo:[],noites:[]};
+      regs.push(atual);
+    }
+    if(!atual) return;
+    if(atual[col] !== undefined) atual[col].push(o.s);
+  });
+  const join = a => a.join(' ').replace(/\s+/g,' ').trim();
+  return regs.map(function(r){
+    const email = join(r.email);
+    return {
+      checkin: join(r.checkin), checkout: join(r.checkout),
+      acomodacao: join(r.acom), nome: (join(r.nome)+' '+join(r.sobrenome)).trim(),
+      status: join(r.status), email: email,
+      valor: join(r.valor), saldo: join(r.saldo), noites: join(r.noites),
+      referencia: plataformaPorEmail_(email)
+    };
+  }).filter(function(r){ return r.checkin && r.noites; });
+}
+// Fluxo completo: pega o PDF no robô, lê com pdf.js (por coordenadas), parseia e carrega.
 function carregarReservasDoPdf(){
   return apiGetReservasPdf().then(function(r){
     if(!r || !r.b64) throw new Error('sem PDF de reservas no e-mail');
-    return extrairTextoPdf(b64ParaUint8_(r.b64).buffer).then(function(texto){
-      const regs = parseReservasPdf(texto);
+    return extrairItensPdf(b64ParaUint8_(r.b64).buffer).then(function(itens){
+      const regs = parseReservasPdfItens(itens);
       if(!regs.length) throw new Error('PDF lido, mas nenhuma reserva reconhecida');
       const csv = reservasPdfParaCsv(regs);
       const quando = r.atualizadoEm ? ' em ' + r.atualizadoEm : '';
