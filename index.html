@@ -637,6 +637,78 @@ function apiGetReservasCsv(){
   return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=reservasCsv&_=' + Date.now(), null, 20000)
     .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
+// Busca no robô o PDF do relatório de reservas (enviado pelo FazReservas por e-mail),
+// em base64. O robô só localiza e devolve o arquivo; a leitura é feita aqui com pdf.js.
+function apiGetReservasPdf(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=reservasPdf&_=' + Date.now(), null, 25000)
+    .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function b64ParaUint8_(b64){
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+// Detecta a plataforma pela máscara de e-mail do hóspede (o relatório não traz a
+// coluna "fonte"). Ex.: xxx@guest.booking.com => Booking.com.
+function plataformaPorEmail_(email){
+  const e = norm(email);
+  if(e.indexOf('booking.com') > -1) return 'Booking.com';
+  if(e.indexOf('airbnb') > -1) return 'Airbnb';
+  return '';
+}
+// Converte o texto extraído do PDF (relatório "Painel - Reservas (auto)") em
+// registros de reserva. Cada reserva começa com a data (Primeira Noite) seguida
+// de CABANA.../CONTAINERS, e termina na linha consolidada com Status, Valor,
+// Saldo e Noites. Nomes/datas que quebram em várias linhas são tratados ao
+// "achatar" o texto antes de aplicar o padrão.
+function parseReservasPdf(txt){
+  if(!txt) return [];
+  txt = txt.replace(/P[áa]gina \d+ de \d+/g, ' ');
+  // remove o bloco de cabeçalho de colunas que se repete em cada página
+  txt = txt.replace(/Primeira\s+Noite\s+Acomodação\s+Nome\s+Sobrenome\s+Última\s+Noite\s+Adultos\s+Crianças\s+E-?mail\s+Status\s+Celular\s+Previsão\s+de\s+Chegada\s+Valor\s+Saldo A\s+Pagar\s+BRL\s+Noites\s+Hóspede\s*-\s*Observações/g, ' ');
+  const flat = txt.replace(/\s+/g,' ').trim();
+  const STATUS = 'Confirmado|Solicitação|Cancelado|Nova|Questionário|Black';
+  const re = new RegExp(
+    '(\\d{1,2} \\w{3} \\d{4})\\s+(CABANA (?:VERDE|AZUL|ROSA)|CONTAINERS?[^ ]*|STUDIO[^ ]*)\\s+(.+?)\\s+(\\d{1,2} \\w{3} \\d{4})\\s+(\\d+)\\s+(\\d+)\\s+(.*?)(' + STATUS + ')\\s+(.*?)([\\d,]+\\.\\d{2})\\s+([\\d,]+\\.\\d{2})\\s+(\\d+)', 'g');
+  const out = []; let m;
+  while((m = re.exec(flat)) !== null){
+    const email = (m[7]||'').trim();
+    out.push({
+      checkin: m[1], acomodacao: m[2].replace(/\s+/g,' '),
+      nome: m[3].replace(/\s+/g,' ').trim(), checkout: m[4],
+      adultos: m[5], criancas: m[6], email: email, status: m[8],
+      valor: m[10], saldo: m[11], noites: m[12],
+      referencia: plataformaPorEmail_(email)
+    });
+  }
+  return out;
+}
+// Monta um CSV (cabeçalhos compatíveis com o HEADER_MAP) a partir dos registros,
+// para reaproveitar todo o loadCSVText já existente.
+function reservasPdfParaCsv(registros){
+  const cab = ['check in','check out','acomodacao','nome','status','valor','saldo','noites','referencia','e-mail'];
+  const esc = v => { v = (v==null?'':String(v)); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  const linhas = [cab.join(',')];
+  registros.forEach(r => {
+    linhas.push([r.checkin, r.checkout, r.acomodacao, r.nome, r.status, r.valor, r.saldo, r.noites, r.referencia, r.email].map(esc).join(','));
+  });
+  return linhas.join('\n');
+}
+// Fluxo completo: pega o PDF no robô, lê com pdf.js, parseia e carrega no painel.
+function carregarReservasDoPdf(){
+  return apiGetReservasPdf().then(function(r){
+    if(!r || !r.b64) throw new Error('sem PDF de reservas no e-mail');
+    return extrairTextoPdf(b64ParaUint8_(r.b64).buffer).then(function(texto){
+      const regs = parseReservasPdf(texto);
+      if(!regs.length) throw new Error('PDF lido, mas nenhuma reserva reconhecida');
+      const csv = reservasPdfParaCsv(regs);
+      const quando = r.atualizadoEm ? ' em ' + r.atualizadoEm : '';
+      loadCSVText(csv, true, 'sincronizado do FazReservas (PDF)' + quando);
+      return regs.length;
+    });
+  });
+}
 
 let estoqueCache = [];
 let frigobarTotalsCache = {};
@@ -1982,15 +2054,16 @@ function carregarCsvDoRepositorio(){
     .then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
     .then(text => loadCSVText(text, true, 'publicado no repositório'));
 }
-// Ordem das fontes: 1) reservas sincronizadas do e-mail (planilha),
-// 2) CSV publicado no repositório, 3) último CSV salvo neste navegador.
+// Ordem das fontes: 1) PDF do relatório do FazReservas (e-mail, via robô),
+// 2) CSV sincronizado na planilha (fluxo antigo), 3) CSV publicado no
+// repositório, 4) último CSV salvo neste navegador.
 function initialLoad(){
   if(apiAvailable()){
-    apiGetReservasCsv()
-      .then(r => {
+    carregarReservasDoPdf()
+      .catch(() => apiGetReservasCsv().then(r => {
         if(!r || !r.csv || r.csv.length < 50) throw new Error('sem reservas na planilha');
         loadCSVText(r.csv, true, 'sincronizado do FazReservas' + (r.atualizadoEm ? ' em ' + r.atualizadoEm : ''));
-      })
+      }))
       .catch(() => carregarCsvDoRepositorio().catch(() => restoreLastCSV()));
   } else {
     carregarCsvDoRepositorio().catch(() => restoreLastCSV());
@@ -2001,19 +2074,17 @@ function buscarReservasNoEmail(){
   if(!apiAvailable()){ alert('Sincronização indisponível: a API não está configurada.'); return; }
   const btn = document.getElementById('syncReservasBtn');
   if(btn){ btn.disabled = true; btn.textContent = '⏳ Buscando no e-mail…'; }
-  apiPost({action:'atualizarReservasEmail'})
-    .then(r => {
-      if(r && r.ok){
-        alert('Reservas atualizadas do e-mail.\n\nArquivo: ' + (r.arquivo||'?') +
-              '\nRemetente: ' + (r.de||'?') +
-              '\nData do e-mail: ' + (r.dataEmail||'?') +
-              '\nLinhas: ' + (r.linhasGravadas||0));
-        initialLoad();
-      } else {
-        alert('Não foi possível atualizar:\n' + ((r && r.error) || 'erro desconhecido'));
-      }
+  // Lê o PDF mais recente do relatório (enviado pelo FazReservas). Se não houver
+  // PDF, cai para o fluxo antigo de CSV por e-mail.
+  carregarReservasDoPdf()
+    .then(function(qtd){ alert('Reservas atualizadas do e-mail (PDF do FazReservas).\n\n' + qtd + ' reserva(s) carregada(s).'); })
+    .catch(function(){
+      return apiPost({action:'atualizarReservasEmail'}).then(function(r){
+        if(r && r.ok){ initialLoad(); alert('Reservas atualizadas do e-mail (CSV).\nLinhas: ' + (r.linhasGravadas||0)); }
+        else { alert('Não encontrei o relatório de reservas no e-mail ainda.\n' + ((r && r.error) || '') + '\n\nConfira se a rotina do FazReservas está ligada e já enviou pelo menos um e-mail.'); }
+      });
     })
-    .catch(() => alert('Não foi possível falar com a planilha agora. Verifique sua conexão.'))
+    .catch(() => alert('Não foi possível falar com o robô agora. Verifique sua conexão.'))
     .finally(() => { if(btn){ btn.disabled = false; btn.textContent = '📧 Buscar reservas no e-mail'; } });
 }
 

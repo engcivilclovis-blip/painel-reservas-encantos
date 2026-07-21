@@ -69,6 +69,8 @@ function doGet(e){
     result = getPedidosMaterial_();
   } else if(action === 'reservasCsv'){
     result = getReservasCsv_();
+  } else if(action === 'reservasPdf'){
+    result = getReservasPdf_();
   } else {
     result = {error:'ação inválida'};
   }
@@ -423,6 +425,47 @@ function getReservasCsv_(){
   }
   var cfg = getConfig_();
   return {csv: linhas.join('\n'), atualizadoEm: cfg.reservasAtualizadoEm || '', origem: cfg.reservasOrigem || ''};
+}
+
+// Localiza no Gmail o PDF mais recente do relatório de reservas enviado pelo
+// FazReservas (rotina) e devolve o arquivo em base64. A LEITURA do PDF é feita
+// no painel (pdf.js) — aqui o robô só encontra e entrega o arquivo, o que é
+// simples e confiável (Apps Script não lê PDF de tabela com qualidade).
+function getReservasPdf_(){
+  var cfg = getConfig_();
+  var busca = cfg.buscaEmailReservasPdf || 'from:reservas@fazreserva.com.br has:attachment filename:pdf newer_than:10d';
+  var threads = GmailApp.search(busca, 0, 25);
+  var candidatos = [];
+  for(var i=0;i<threads.length;i++){
+    var msgs = threads[i].getMessages();
+    for(var j=0;j<msgs.length;j++){
+      var m = msgs[j];
+      var anexos = m.getAttachments();
+      for(var k=0;k<anexos.length;k++){
+        var nome = String(anexos[k].getName()).toLowerCase();
+        if(nome.indexOf('.pdf') === -1) continue;
+        // aceita relatórios do FazReservas (custom1.../arrivals.../propid...)
+        if(nome.indexOf('custom') === -1 && nome.indexOf('propid') === -1 && nome.indexOf('arrivals') === -1) continue;
+        candidatos.push({quando: m.getDate(), anexo: anexos[k], arquivo: anexos[k].getName(), de: m.getFrom()});
+      }
+    }
+  }
+  if(!candidatos.length){
+    return {b64:'', arquivo:'', atualizadoEm:'', erro:'Nenhum PDF de reservas encontrado. Busca: ' + busca};
+  }
+  // mais recente primeiro; prefere o relatório do painel (custom1)
+  candidatos.sort(function(a,b){ return b.quando.getTime() - a.quando.getTime(); });
+  var escolhido = null;
+  for(var c=0;c<candidatos.length;c++){
+    if(String(candidatos[c].arquivo).toLowerCase().indexOf('custom1') > -1){ escolhido = candidatos[c]; break; }
+  }
+  if(!escolhido) escolhido = candidatos[0];
+  return {
+    b64: Utilities.base64Encode(escolhido.anexo.getBytes()),
+    arquivo: escolhido.arquivo,
+    de: escolhido.de,
+    atualizadoEm: Utilities.formatDate(escolhido.quando, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+  };
 }
 
 function gravarReservasCsv_(texto){
