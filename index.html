@@ -733,11 +733,11 @@ function parseReservasPdf(txt){
 // Monta um CSV (cabeçalhos compatíveis com o HEADER_MAP) a partir dos registros,
 // para reaproveitar todo o loadCSVText já existente.
 function reservasPdfParaCsv(registros){
-  const cab = ['check in','check out','acomodacao','nome','status','valor','saldo','noites','referencia','e-mail'];
+  const cab = ['check in','check out','acomodacao','unid.','nome','status','valor','saldo','noites','referencia','e-mail'];
   const esc = v => { v = (v==null?'':String(v)); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
   const linhas = [cab.join(',')];
   registros.forEach(r => {
-    linhas.push([r.checkin, r.checkout, r.acomodacao, r.nome, r.status, r.valor, r.saldo, r.noites, r.referencia, r.email].map(esc).join(','));
+    linhas.push([r.checkin, r.checkout, r.acomodacao, r.unidade||'', r.nome, r.status, r.valor, r.saldo, r.noites, r.referencia, r.email].map(esc).join(','));
   });
   return linhas.join('\n');
 }
@@ -764,6 +764,7 @@ function colunaPorX_(x, cols){
 const CAB_MAP_PDF = {
   'Primeira':'checkin','First':'checkin',
   'Acomodação':'acom','Room':'acom',
+  'Unid.':'unidade','Unit':'unidade',
   'Nome':'nome','First Name':'nome',
   'Sobrenome':'sobrenome','Last Name':'sobrenome',
   'Última':'checkout','Last':'checkout',
@@ -781,8 +782,8 @@ const CAB_MAP_PDF = {
 // Palavras que só existem no cabeçalho (nos 2 idiomas) — comparadas com
 // diferença de maiúsculas para não remover "DE OLIVEIRA" de um sobrenome.
 const CAB_PDF = {};
-['Primeira','Noite','Acomodação','Nome','Sobrenome','Última','Adultos','Crianças','E-mail','Status','Celular','Previsão','de','Chegada','Valor','Saldo A','Pagar','BRL','Noites','Hóspede -','Observações',
- 'First','Night','Room','First Name','Last Name','Last','Adults','Children','Email','Mobile','Arrival','Time','Price','Invoice','Balance','Nights','Guest','Comments'
+['Primeira','Noite','Acomodação','Unid.','Nome','Sobrenome','Última','Adultos','Crianças','E-mail','Status','Celular','Previsão','de','Chegada','Valor','Saldo A','Pagar','BRL','Noites','Hóspede -','Observações',
+ 'First','Night','Room','Unit','First Name','Last Name','Last','Adults','Children','Email','Mobile','Arrival','Time','Price','Invoice','Balance','Nights','Guest','Comments'
 ].forEach(function(w){ CAB_PDF[w] = 1; });
 // Detecta a posição x de cada coluna a partir do cabeçalho do próprio PDF.
 function detectarColunasPdf_(itens){
@@ -832,7 +833,7 @@ function parseReservasPdfItens(itens){
   itens.forEach(function(o){
     const col = colunaPorX_(o.x, cols);
     if(col === 'checkin' && ehDataPdf_(o.s)){
-      atual = {checkin:[],acom:[],nome:[],sobrenome:[],checkout:[],email:[],status:[],valor:[],saldo:[],noites:[]};
+      atual = {checkin:[],acom:[],unidade:[],nome:[],sobrenome:[],checkout:[],email:[],status:[],valor:[],saldo:[],noites:[]};
       regs.push(atual);
     }
     if(!atual) return;
@@ -847,7 +848,8 @@ function parseReservasPdfItens(itens){
       // um dia ANTES da saída. O check-out real é Última Noite + 1 dia — é isso
       // que o calendário e as faxinas usam.
       checkout: checkoutDaUltimaNoite_(join(r.checkout), join(r.checkin), join(r.noites)),
-      acomodacao: join(r.acom), nome: (join(r.nome)+' '+join(r.sobrenome)).trim(),
+      acomodacao: join(r.acom), unidade: join(r.unidade),
+      nome: (join(r.nome)+' '+join(r.sobrenome)).trim(),
       status: join(r.status), email: email,
       valor: join(r.valor), saldo: join(r.saldo), noites: join(r.noites),
       referencia: plataformaPorEmail_(email)
