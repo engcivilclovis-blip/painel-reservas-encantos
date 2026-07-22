@@ -2,7 +2,15 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Painel Semanal de Reservas — Encantos de Altitude</title>
+<!-- App instalável: ícone na tela inicial, abre em tela cheia e funciona com sinal ruim -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#884D2F">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Encantos">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -20,8 +28,8 @@
   *{box-sizing:border-box;}
   body{font-family:'Poppins',Arial,Helvetica,sans-serif;background:var(--bg);margin:0;padding:16px;color:var(--brand-charcoal);}
   .brand-header{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
-  .brand-mark{color:var(--brand-terra);flex-shrink:0;line-height:0;}
-  .brand-mark svg{width:42px;height:26px;display:block;}
+  .brand-mark{flex-shrink:0;line-height:0;}
+  .brand-mark img{width:60px;height:auto;display:block;mix-blend-mode:multiply;}
   h1{font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-size:23px;margin:0;color:var(--brand-charcoal);font-weight:600;}
   .brand-sub{font-family:'Poppins',sans-serif;font-size:11px;letter-spacing:3px;color:var(--brand-terra);margin-top:3px;text-transform:uppercase;}
   .toolbar{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px;position:sticky;top:0;z-index:5;box-shadow:0 2px 8px rgba(136,77,47,0.08);}
@@ -179,18 +187,7 @@
 
 <div class="brand-header">
   <div class="brand-mark">
-    <svg viewBox="0 0 120 74" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-      <g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M10 70 L10 40 L60 8 L110 40 L110 70"/>
-        <path d="M10 40 L110 40"/>
-        <path d="M60 8 L45 40"/>
-        <path d="M60 8 L60 40"/>
-        <path d="M60 8 L75 40"/>
-        <path d="M35 40 L35 70"/>
-        <path d="M85 40 L85 70"/>
-      </g>
-      <path d="M34 70 A26 26 0 0 1 86 70 Z" fill="currentColor"/>
-    </svg>
+    <img src="logo-simbolo.png" alt="Encantos de Altitude" width="206" height="139">
   </div>
   <div>
     <h1>Painel Semanal de Reservas</h1>
@@ -214,6 +211,7 @@
       <input type="search" id="buscaHospede" placeholder="🔎 Buscar hóspede pelo nome (qualquer data)…"
              oninput="renderHoje()" style="flex:1;min-width:220px;padding:10px;font-size:15px;border:1px solid var(--border);border-radius:8px;">
       <button class="secondary" onclick="document.getElementById('buscaHospede').value='';renderHoje();">Limpar</button>
+      <button id="instalarBtn" onclick="instalarApp()" style="display:none;">📲 Instalar no celular</button>
     </div>
   </div>
   <div id="hojeBox"></div>
@@ -3245,6 +3243,33 @@ initialLoad();
 if(apiAvailable()){
   refreshFrigobarCache();
   setInterval(refreshFrigobarCache, 60000);
+}
+
+// ---------- App instalável (PWA) ----------
+// Só registra quando servido por http(s) — aberto direto do arquivo (file://)
+// o navegador não permite service worker, e não faz falta.
+if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){ /* segue funcionando sem offline */ });
+  });
+}
+// Convite para instalar na tela inicial (Android/Chrome). O iPhone não dispara
+// este evento: lá é "Compartilhar > Adicionar à Tela de Início".
+let promptInstalar = null;
+window.addEventListener('beforeinstallprompt', function(e){
+  e.preventDefault();
+  promptInstalar = e;
+  const btn = document.getElementById('instalarBtn');
+  if(btn) btn.style.display = 'inline-block';
+});
+function instalarApp(){
+  if(!promptInstalar) return;
+  promptInstalar.prompt();
+  promptInstalar.userChoice.finally(function(){
+    promptInstalar = null;
+    const btn = document.getElementById('instalarBtn');
+    if(btn) btn.style.display = 'none';
+  });
 }
 </script>
 </body>
