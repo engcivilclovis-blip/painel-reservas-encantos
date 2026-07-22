@@ -101,6 +101,21 @@
   .st-plataforma{background:#eef4fa;color:#2b5f8a;border:1px solid #bcd2e8;}
   .concil-acoes button{padding:3px 7px;font-size:11px;margin:1px 2px 1px 0;}
   .concil-sub{font-size:11px;color:#8a7d6f;margin-top:2px;}
+  /* ---- Tela "Hoje" (check-in rápido) ---- */
+  .hoje-sec{margin-bottom:18px;}
+  .hoje-sec h3{font-family:'Playfair Display',Georgia,serif;font-size:17px;margin:0 0 8px;}
+  .chk-card{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--brand-terra);
+    border-radius:10px;padding:12px 14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(136,77,47,.07);}
+  .chk-card.saida{border-left-color:var(--brand-gold-deep);}
+  .chk-card.feito{border-left-color:var(--ok);background:#f6fbf7;}
+  .chk-nome{font-size:18px;font-weight:600;line-height:1.2;}
+  .chk-linha{font-size:14px;margin-top:4px;}
+  .chk-forte{font-weight:600;}
+  .chk-acoes{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+  .chk-acoes a,.chk-acoes button{text-decoration:none;}
+  .chk-fin{background:#f7f3ee;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:14px;}
+  .chk-obs{background:#fffdf6;border:1px dashed var(--border);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px;}
+  .zap{background:#25D366 !important;color:#fff;}
   .empty{color:#a89b8d;font-size:11px;padding:4px 8px;}
   .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:#5a5049;}
   .legend span{display:inline-flex;align-items:center;gap:5px;}
@@ -185,14 +200,36 @@
 
 <div class="app-shell">
   <nav class="sidebar" id="sidebar">
-    <button class="side-btn on" id="navReservasBtn" onclick="irModulo('reservas')">📋 Reservas</button>
+    <button class="side-btn on" id="navHojeBtn" onclick="irModulo('hoje')">⭐ Hoje</button>
+    <button class="side-btn" id="navReservasBtn" onclick="irModulo('reservas')">📋 Reservas</button>
     <button class="side-btn" id="navFaxinasBtn" onclick="irModulo('faxinas')" style="display:none;">🧹 Faxinas</button>
     <button class="side-btn" id="navManutencaoBtn" onclick="irModulo('manutencao')" style="display:none;">🔧 Manutenção</button>
     <button class="side-btn" id="navFinanceiroBtn" onclick="irModulo('financeiro')" style="display:none;">💰 Financeiro</button>
   </nav>
   <div class="app-main">
 
-<div class="module-view on" id="module-reservas">
+<div class="module-view on" id="module-hoje">
+  <div class="toolbar">
+    <div class="toolbar-row" style="margin-bottom:0;">
+      <input type="search" id="buscaHospede" placeholder="🔎 Buscar hóspede pelo nome (qualquer data)…"
+             oninput="renderHoje()" style="flex:1;min-width:220px;padding:10px;font-size:15px;border:1px solid var(--border);border-radius:8px;">
+      <button class="secondary" onclick="document.getElementById('buscaHospede').value='';renderHoje();">Limpar</button>
+    </div>
+  </div>
+  <div id="hojeBox"></div>
+</div>
+
+<div class="modal-overlay" id="cobrancaModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>💳 Cobrar saldo por PIX</h2>
+      <button class="secondary" onclick="closeCobrancaModal()">Fechar</button>
+    </div>
+    <div id="cobrancaBody"></div>
+  </div>
+</div>
+
+<div class="module-view" id="module-reservas">
 <div class="toolbar">
   <div id="importSection">
     <div class="toolbar-row">
@@ -737,11 +774,11 @@ function parseReservasPdf(txt){
 // Monta um CSV (cabeçalhos compatíveis com o HEADER_MAP) a partir dos registros,
 // para reaproveitar todo o loadCSVText já existente.
 function reservasPdfParaCsv(registros){
-  const cab = ['check in','check out','acomodacao','unid.','nome','status','valor','saldo','noites','referencia','e-mail'];
+  const cab = ['check in','check out','acomodacao','unid.','nome','status','valor','saldo','noites','referencia','e-mail','celular','adultos','criancas'];
   const esc = v => { v = (v==null?'':String(v)); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
   const linhas = [cab.join(',')];
   registros.forEach(r => {
-    linhas.push([r.checkin, r.checkout, r.acomodacao, r.unidade||'', r.nome, r.status, r.valor, r.saldo, r.noites, r.referencia, r.email].map(esc).join(','));
+    linhas.push([r.checkin, r.checkout, r.acomodacao, r.unidade||'', r.nome, r.status, r.valor, r.saldo, r.noites, r.referencia, r.email, r.telefone||'', r.adultos||'', r.criancas||''].map(esc).join(','));
   });
   return linhas.join('\n');
 }
@@ -837,7 +874,7 @@ function parseReservasPdfItens(itens){
   itens.forEach(function(o){
     const col = colunaPorX_(o.x, cols);
     if(col === 'checkin' && ehDataPdf_(o.s)){
-      atual = {checkin:[],acom:[],unidade:[],nome:[],sobrenome:[],checkout:[],email:[],status:[],valor:[],saldo:[],noites:[]};
+      atual = {checkin:[],acom:[],unidade:[],nome:[],sobrenome:[],checkout:[],email:[],status:[],valor:[],saldo:[],noites:[],celular:[],adultos:[],criancas:[]};
       regs.push(atual);
     }
     if(!atual) return;
@@ -855,6 +892,7 @@ function parseReservasPdfItens(itens){
       acomodacao: join(r.acom), unidade: join(r.unidade),
       nome: (join(r.nome)+' '+join(r.sobrenome)).trim(),
       status: join(r.status), email: email,
+      telefone: join(r.celular), adultos: join(r.adultos), criancas: join(r.criancas),
       valor: join(r.valor), saldo: join(r.saldo), noites: join(r.noites),
       referencia: plataformaPorEmail_(email)
     };
@@ -950,10 +988,12 @@ function refreshFrigobarCache(){
         if(config.waAdminFone !== undefined) waAdminFone = config.waAdminFone || '';
         if(config.waAdminKey !== undefined) waAdminKey = config.waAdminKey || '';
         if(config.frigobarCustos){ try { frigobarCustos = JSON.parse(config.frigobarCustos) || {}; } catch(e){} }
+        if(config.checkinsFeitos){ try { checkinsFeitos = JSON.parse(config.checkinsFeitos) || {}; } catch(e){} }
         carregarConciliacaoDaConfig(config);
       }
       renderStock();
       render();
+      if(activeModulo === 'hoje') renderHoje();
       if(activeModulo === 'faxinas') renderFaxinasList();
       if(activeModulo === 'manutencao'){ renderManutencaoList(); renderMateriaisList(); renderManutSemana(); }
       if(activeModulo === 'financeiro') renderConciliacao();
@@ -2184,14 +2224,17 @@ function updateSidebarUI(){
   const podeFaxinas = isAdmin || isFaxineira;
   const podeManutencao = isAdmin || isManutColab;
   const podeFinanceiro = isAdmin;
+  const podeHoje = !isManutColab;
+  document.getElementById('navHojeBtn').style.display = podeHoje ? 'block' : 'none';
   document.getElementById('navReservasBtn').style.display = podeReservas ? 'block' : 'none';
   document.getElementById('navFaxinasBtn').style.display = podeFaxinas ? 'block' : 'none';
   document.getElementById('navManutencaoBtn').style.display = podeManutencao ? 'block' : 'none';
   document.getElementById('navFinanceiroBtn').style.display = podeFinanceiro ? 'block' : 'none';
-  const permitidos = {reservas:podeReservas, faxinas:podeFaxinas, manutencao:podeManutencao, financeiro:podeFinanceiro};
-  if(!permitidos[activeModulo]) irModulo(podeReservas ? 'reservas' : (podeFaxinas ? 'faxinas' : 'manutencao'));
+  const permitidos = {hoje:podeHoje, reservas:podeReservas, faxinas:podeFaxinas, manutencao:podeManutencao, financeiro:podeFinanceiro};
+  if(!permitidos[activeModulo]) irModulo(podeHoje ? 'hoje' : (podeFaxinas ? 'faxinas' : 'manutencao'));
+  if(activeModulo === 'hoje') renderHoje();   // o financeiro some/aparece conforme o papel
 }
-let activeModulo = 'reservas';
+let activeModulo = 'hoje';   // abre direto no que mais se usa no dia a dia
 function irModulo(mod){
   activeModulo = mod;
   document.querySelectorAll('.module-view').forEach(v => v.classList.remove('on'));
@@ -2201,7 +2244,8 @@ function irModulo(mod){
   const btnId = 'nav' + mod.charAt(0).toUpperCase() + mod.slice(1) + 'Btn';
   const btn = document.getElementById(btnId);
   if(btn) btn.classList.add('on');
-  if(mod === 'reservas') render();
+  if(mod === 'hoje') renderHoje();
+  else if(mod === 'reservas') render();
   else if(mod === 'faxinas') renderFaxinasList();
   else if(mod === 'manutencao'){ renderManutencaoList(); renderMateriaisList(); renderManutSemana(); }
   else if(mod === 'financeiro') renderConciliacao();
@@ -2308,6 +2352,7 @@ const HEADER_MAP = {
   noites: ['noites','nights'],
   nome: ['nome completo','nome','name'],
   email: ['e-mail','email'],
+  telefone: ['celular','telefone','mobile','phone'],
   adultos: ['adultos','adults'],
   criancas: ['criancas','children'],
   referencia: ['referencia','source','fonte de referencia'],
@@ -2348,6 +2393,8 @@ function loadCSVText(text, persist, sourceLabel){
       unidade: get('unidade'),
       checkin, checkout,
       nome: get('nome'),
+      telefone: get('telefone'),
+      email: get('email'),
       adultos: parseNumber(get('adultos')),
       criancas: parseNumber(get('criancas')),
       referencia: ref,
@@ -2367,6 +2414,7 @@ function loadCSVText(text, persist, sourceLabel){
     if(firstDate) weekStart = mondayOf(firstDate);
   }
   render();
+  renderHoje();
 }
 function updateStatusMsg(sourceLabel){
   let msg = reservations.length + ' reservas carregadas.';
@@ -2666,6 +2714,131 @@ function selectDetailsRes(key){
   currentDetailKey = key || null;
   renderDetailsBody();
 }
+/* ═══════════════════════════════════════════════════════════════
+   TELA "HOJE" — pensada para o momento do check-in, quando está
+   corrido: tudo do hóspede num cartão só, sem navegar por semanas.
+   O bloco financeiro aparece SOMENTE para o administrador.
+   ═══════════════════════════════════════════════════════════════ */
+let checkinsFeitos = {};   // reservaChave -> data/hora, sincronizado na Config
+function salvarCheckins(){
+  if(apiAvailable()) apiSalvarConfig('checkinsFeitos', JSON.stringify(checkinsFeitos)).catch(function(){});
+}
+function marcarCheckin(keyEnc){
+  const key = decodeURIComponent(keyEnc);
+  if(checkinsFeitos[key]) delete checkinsFeitos[key];
+  else checkinsFeitos[key] = new Date().toLocaleString('pt-BR');
+  salvarCheckins();
+  renderHoje();
+}
+function soDigitos_(s){ return String(s||'').replace(/\D/g,''); }
+// Monta o link do WhatsApp a partir do telefone da reserva.
+function linkWhatsApp_(tel){
+  let d = soDigitos_(tel);
+  if(!d) return '';
+  if(d.length <= 11) d = '55' + d;          // sem código do país
+  return 'https://wa.me/' + d;
+}
+function pessoasTexto_(res){
+  const a = Number(res.adultos)||0, c = Number(res.criancas)||0;
+  if(!a && !c) return '';
+  let t = a + (a===1?' adulto':' adultos');
+  if(c) t += ' + ' + c + (c===1?' criança':' crianças');
+  return t;
+}
+function cardCheckinHtml(res, tipo){
+  const key = resKey(res);
+  const kEnc = encodeURIComponent(key);
+  const feito = !!checkinsFeitos[key];
+  const tel = res.telefone || '';
+  const zap = linkWhatsApp_(tel);
+  const noites = Number(res.noites) || 0;
+  const pessoas = pessoasTexto_(res);
+  const obs = apiAvailable() ? (obsCache[key] || '') : (getDetail(key).obs || '');
+  // Financeiro: SOMENTE administrador
+  let fin = '';
+  if(podeVerPagamento()){
+    const valor = Number(res.valor)||0, saldo = Number(res.saldo)||0;
+    const pago = Math.max(0, valor - saldo);
+    fin = '<div class="chk-fin">💰 Total <b>' + fmtMoney(valor) + '</b> · Pago <b style="color:var(--ok);">' + fmtMoney(pago) +
+          '</b> · Falta <b style="color:' + (saldo>0?'#b02a1c':'var(--ok)') + ';">' + fmtMoney(saldo) + '</b>' +
+          (saldo > 0 ? ' <button class="mini" onclick="abrirCobranca(\'' + kEnc + '\')">💳 Cobrar por PIX</button>' : '') +
+          '</div>';
+  }
+  return '<div class="chk-card ' + (tipo==='saida'?'saida':'') + (feito?' feito':'') + '">' +
+    '<div class="chk-nome">' + (res.nome||'(sem nome)') + (feito?' <span class="badge b-ok">✅ chegou</span>':'') + '</div>' +
+    '<div class="chk-linha">🏠 <span class="chk-forte">' + (cabanaFrigobar(res) || res.acomodacao || '-') + '</span>' +
+      ' · <span class="badge b-' + platformClass(res.platform) + '">' + res.platform + '</span></div>' +
+    '<div class="chk-linha">📅 ' + (res.checkin?res.checkin.toLocaleDateString('pt-BR'):'?') + ' → ' +
+      (res.checkout?res.checkout.toLocaleDateString('pt-BR'):'?') + (noites?' · <span class="chk-forte">'+noites+(noites===1?' noite':' noites')+'</span>':'') + '</div>' +
+    (pessoas ? '<div class="chk-linha">👥 ' + pessoas + '</div>' : '') +
+    (tel ? '<div class="chk-linha">📱 ' + tel + '</div>' : '<div class="chk-linha" style="color:#8a7d6f;">📱 sem telefone no relatório</div>') +
+    fin +
+    (obs ? '<div class="chk-obs">📝 ' + obs + '</div>' : '') +
+    '<div class="chk-acoes">' +
+      (zap ? '<a class="mini zap" href="' + zap + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;">💬 WhatsApp</a>' : '') +
+      '<button class="mini secondary" onclick="abrirFaxinaDetalhe(\'' + key.replace(/'/g,"\\'") + '\')">📄 Abrir detalhes</button>' +
+      '<button class="mini ' + (feito?'secondary':'') + '" onclick="marcarCheckin(\'' + kEnc + '\')">' + (feito?'↩️ Desfazer chegada':'✅ Marcar chegada') + '</button>' +
+    '</div></div>';
+}
+function renderHoje(){
+  const box = document.getElementById('hojeBox');
+  if(!box) return;
+  const termo = norm((document.getElementById('buscaHospede')||{}).value || '');
+  const ativas = reservations.filter(r => !/cancel/i.test(r.status||''));
+  if(termo.length >= 2){
+    // Só compara telefone quando o termo realmente tem dígitos — senão a busca
+    // por string vazia daria match em todas as reservas.
+    const dig = soDigitos_(termo);
+    const achados = ativas.filter(r => norm(r.nome).indexOf(termo) > -1 ||
+                                       norm(r.acomodacao||'').indexOf(termo) > -1 ||
+                                       (dig.length >= 3 && soDigitos_(r.telefone).indexOf(dig) > -1));
+    achados.sort((a,b) => (a.checkin||0) - (b.checkin||0));
+    box.innerHTML = '<div class="hoje-sec"><h3>🔎 ' + achados.length + ' resultado(s) para "' + termo + '"</h3>' +
+      (achados.length ? achados.map(r => cardCheckinHtml(r,'busca')).join('') : '<p class="empty">Nenhuma reserva encontrada.</p>') + '</div>';
+    return;
+  }
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const mesmoDia = d => d && new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime() === hoje.getTime();
+  const chegadas = ativas.filter(r => mesmoDia(r.checkin)).sort((a,b)=> (a.nome||'').localeCompare(b.nome||''));
+  const saidas   = ativas.filter(r => mesmoDia(r.checkout)).sort((a,b)=> (a.nome||'').localeCompare(b.nome||''));
+  const hospedados = ativas.filter(r => r.checkin && r.checkout && r.checkin < hoje && r.checkout > hoje);
+  box.innerHTML =
+    '<div class="hoje-sec"><h3>🛬 Chegadas de hoje (' + chegadas.length + ') — ' + hoje.toLocaleDateString('pt-BR') + '</h3>' +
+      (chegadas.length ? chegadas.map(r => cardCheckinHtml(r,'chegada')).join('') : '<p class="empty">Nenhuma chegada hoje.</p>') + '</div>' +
+    '<div class="hoje-sec"><h3>🛫 Saídas de hoje (' + saidas.length + ')</h3>' +
+      (saidas.length ? saidas.map(r => cardCheckinHtml(r,'saida')).join('') : '<p class="empty">Nenhuma saída hoje.</p>') + '</div>' +
+    '<div class="hoje-sec"><h3>🏠 Hospedados agora (' + hospedados.length + ')</h3>' +
+      (hospedados.length ? hospedados.map(r => cardCheckinHtml(r,'atual')).join('') : '<p class="empty">Nenhum hóspede na casa.</p>') + '</div>';
+}
+// ---- Cobrança do saldo por PIX (somente administrador) ----
+function abrirCobranca(keyEnc){
+  if(!podeVerPagamento()){ alert('Somente o administrador pode cobrar.'); return; }
+  const key = decodeURIComponent(keyEnc);
+  const res = reservations.find(r => resKey(r) === key);
+  if(!res) return;
+  const saldo = Number(res.saldo) || 0;
+  const body = document.getElementById('cobrancaBody');
+  if(!pixKey){
+    body.innerHTML = '<p>Você ainda não cadastrou a chave PIX. Abra <b>💳 Dados PIX (cobrança)</b> e preencha primeiro.</p>';
+    document.getElementById('cobrancaModal').style.display = 'flex';
+    return;
+  }
+  const payload = pixPayload(saldo);
+  body.innerHTML =
+    '<p style="font-size:14px;"><b>' + (res.nome||'') + '</b> — ' + (cabanaFrigobar(res)||'') + '<br>' +
+    'Valor a cobrar: <b style="font-size:18px;">' + fmtMoney(saldo) + '</b></p>' +
+    '<div id="qrCobranca" style="display:flex;justify-content:center;margin:10px 0;"></div>' +
+    '<label style="font-size:12px;">PIX copia e cola</label>' +
+    '<textarea readonly style="width:100%;height:70px;font-size:11px;">' + payload + '</textarea>' +
+    '<p style="font-size:12px;color:#8a7d6f;">Mostre o QR para o hóspede ou envie o código acima pelo WhatsApp.</p>';
+  document.getElementById('cobrancaModal').style.display = 'flex';
+  const el = document.getElementById('qrCobranca');
+  el.innerHTML = '';
+  try { new QRCode(el, {text:payload, width:190, height:190, correctLevel:QRCode.CorrectLevel.M}); }
+  catch(e){ el.innerHTML = '<span style="font-size:12px;color:#b02a1c;">Não consegui gerar o QR (sem internet?). Use o código copia e cola.</span>'; }
+}
+function closeCobrancaModal(){ document.getElementById('cobrancaModal').style.display = 'none'; }
+
 // Situação financeira da reserva: quanto já pagou, quando pagou e quanto falta.
 // Valor/saldo vêm do relatório do FazReservas; a data e o pagador vêm da
 // conciliação com o extrato do Sicredi. Somente o administrador vê.
