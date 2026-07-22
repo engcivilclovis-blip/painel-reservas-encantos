@@ -2666,6 +2666,54 @@ function selectDetailsRes(key){
   currentDetailKey = key || null;
   renderDetailsBody();
 }
+// Situação financeira da reserva: quanto já pagou, quando pagou e quanto falta.
+// Valor/saldo vêm do relatório do FazReservas; a data e o pagador vêm da
+// conciliação com o extrato do Sicredi. Somente o administrador vê.
+function financeiroReservaHtml(res){
+  if(!res || !podeVerPagamento()) return '';
+  const valor = Number(res.valor) || 0;
+  const saldo = Number(res.saldo) || 0;
+  const pago = Math.max(0, valor - saldo);
+  const pct = valor ? Math.round((pago / valor) * 100) : 0;
+  const info = statusFinalReserva(res);
+  const ov = info.override;
+  let quando;
+  if(info.status === 'plataforma'){
+    quando = '🏢 Reserva de <strong>plataforma</strong> — o valor vem por repasse (Booking/Airbnb), não como PIX na conta. Por isso não aparece no extrato.'
+           + (info.credito ? ' Crédito relacionado: ' + fmtMoney(info.credito.valor) + ' em ' + info.credito.data + '.' : '');
+  } else if(info.credito && saldo > 0 && Math.abs(info.credito.valor - saldo) <= 1){
+    // O crédito bate com o SALDO (e não com o já lançado): o hóspede quitou,
+    // mas o FazReservas ainda não registrou esse pagamento.
+    quando = '💡 Recebido <strong>' + fmtMoney(info.credito.valor) + '</strong> em <strong>' + info.credito.data +
+             '</strong> de ' + info.credito.pagador + ' — <strong>é exatamente o valor que falta</strong>. ' +
+             'Tudo indica que o hóspede já quitou e o pagamento ainda não foi lançado no FazReservas.';
+  } else if(ov && ov.status === 'dinheiro'){
+    quando = '💵 Recebido em <strong>dinheiro</strong>' + (ov.em ? ' — registrado em ' + ov.em : '') + (ov.obs ? ' · ' + ov.obs : '');
+  } else if(ov && ov.status === 'terceiro'){
+    quando = '👥 Pago por terceiro: <strong>' + (ov.pagador || '?') + '</strong>' +
+             (info.credito ? ' — ' + fmtMoney(info.credito.valor) + ' em <strong>' + info.credito.data + '</strong>' : '');
+  } else if(info.credito){
+    quando = '✅ Recebido <strong>' + fmtMoney(info.credito.valor) + '</strong> em <strong>' + info.credito.data +
+             '</strong> — pagador: ' + info.credito.pagador;
+  } else if(pago > 0){
+    quando = '<span style="color:#b02a1c;">⛔ O FazReservas registra ' + fmtMoney(pago) +
+             ' recebido, mas <strong>não localizei esse valor no extrato do Sicredi</strong>.</span>';
+  } else {
+    quando = '<span style="color:#8a7d6f;">Nenhum pagamento registrado até agora.</span>';
+  }
+  const pill = '<span class="st-pill st-' + info.status + '">' + (CONCIL_LABEL[info.status] || info.status) + '</span>';
+  return `
+    <label>💰 Financeiro da reserva</label>
+    <div class="summary-bar" style="margin:4px 0 6px;">
+      <span>Total: <b>${fmtMoney(valor)}</b></span>
+      <span>Já pago: <b style="color:var(--ok);">${fmtMoney(pago)}</b>${valor ? ' (' + pct + '%)' : ''}</span>
+      <span>Falta: <b style="color:${saldo > 0 ? '#b02a1c' : 'var(--ok)'};">${fmtMoney(saldo)}</b></span>
+    </div>
+    <p style="margin:2px 0 6px;font-size:13px;">${quando}</p>
+    <div>${pill}</div>
+    <hr>
+  `;
+}
 function renderDetailsBody(){
   const box = document.getElementById('detailsBody');
   if(!currentDetailKey){ box.innerHTML = '<p class="empty">Selecione uma reserva acima.</p>'; return; }
@@ -2710,6 +2758,7 @@ function renderDetailsBody(){
     ` : ''}
   ` : '';
   box.innerHTML = `
+    ${financeiroReservaHtml(res)}
     <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...) ${syncNote}</label>
     <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${obsValue}</textarea>
     <hr>
