@@ -226,6 +226,26 @@
   <div id="hojeBox"></div>
 </div>
 
+<div class="modal-overlay" id="vendasModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>📊 Vendas do frigobar</h2>
+      <button class="secondary" onclick="closeVendasModal()">Fechar</button>
+    </div>
+    <div class="toolbar-row" style="margin-bottom:8px;">
+      <label class="chk" style="gap:6px;">Período:
+        <select id="vendasPeriodo" onchange="renderVendas()">
+          <option value="30">Últimos 30 dias</option>
+          <option value="90">Últimos 90 dias</option>
+          <option value="365">Último ano</option>
+          <option value="0">Tudo</option>
+        </select>
+      </label>
+    </div>
+    <div id="vendasBody"><p class="empty">Carregando…</p></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="consumoModal" style="display:none;">
   <div class="modal">
     <div class="modal-head">
@@ -480,7 +500,8 @@
     <hr>
     <div class="toolbar-row" style="margin-bottom:0;">
       <button class="secondary" onclick="cargaInicialFrigobar()">🚀 Carga inicial do catálogo</button>
-      <span class="status" style="font-size:12px;">Cadastra de uma vez os produtos padrão da pousada (com custo, onde conhecido). Use quando o catálogo estiver vazio.</span>
+      <button class="secondary" onclick="abrirVendas()">📊 Vendas do frigobar</button>
+      <span class="status" style="font-size:12px;">Carga inicial: cadastra os produtos padrão de uma vez. Vendas: mostra o que mais saiu, receita, custo e lucro.</span>
     </div>
   </div>
 </div>
@@ -689,6 +710,9 @@ function apiSaveObs(reservaChave, reservaLabel, obs){
 }
 function apiGetProdutos(){
   return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=produtos').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+function apiGetMovimentos(){
+  return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=movimentosTodos&_=' + Date.now(), null, 25000).then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
 function apiSalvarProduto(nome, preco, nomeOriginal){
   return apiPost({action:'salvarProduto', nome:nome, preco:preco, nomeOriginal:nomeOriginal||nome});
@@ -2776,9 +2800,11 @@ function cardCheckinHtml(res, tipo){
   if(podeVerPagamento()){
     const valor = Number(res.valor)||0, saldo = Number(res.saldo)||0;
     const pago = Math.max(0, valor - saldo);
-    fin = '<div class="chk-fin">💰 Total <b>' + fmtMoney(valor) + '</b> · Pago <b style="color:var(--ok);">' + fmtMoney(pago) +
+    const frigobar = frigobarDaReserva(res);
+    fin = '<div class="chk-fin">💰 Diária <b>' + fmtMoney(valor) + '</b> · Pago <b style="color:var(--ok);">' + fmtMoney(pago) +
           '</b> · Falta <b style="color:' + (saldo>0?'#b02a1c':'var(--ok)') + ';">' + fmtMoney(saldo) + '</b>' +
-          (saldo > 0 ? ' <button class="mini" onclick="abrirCobranca(\'' + kEnc + '\')">💳 Cobrar por PIX</button>' : '') +
+          (frigobar > 0 ? '<br>🧺 Frigobar a cobrar: <b>' + fmtMoney(frigobar) + '</b> · <b>Total devido ' + fmtMoney(saldo + frigobar) + '</b>' : '') +
+          ((saldo + frigobar) > 0 ? ' <button class="mini" onclick="abrirCobranca(\'' + kEnc + '\')">💳 Cobrar por PIX</button>' : '') +
           '</div>';
   }
   return '<div class="chk-card ' + (tipo==='saida'?'saida':'') + (feito?' feito':'') + '">' +
@@ -2828,6 +2854,82 @@ function renderHoje(){
     '<div class="hoje-sec"><h3>🏠 Hospedados agora (' + hospedados.length + ')</h3>' +
       (hospedados.length ? hospedados.map(r => cardCheckinHtml(r,'atual')).join('') : '<p class="empty">Nenhum hóspede na casa.</p>') + '</div>';
 }
+/* ---- Relatório de vendas do frigobar (somente administrador) ----
+   Busca todos os movimentos de saída no robô e agrega no painel, aplicando o
+   custo (que mora na Config), para mostrar receita, custo, lucro e margem, além
+   do que saiu como cortesia/perda/quebra. */
+let vendasMovimentos = null;
+function abrirVendas(){
+  if(!isAdmin){ alert('Somente o administrador vê as vendas.'); return; }
+  document.getElementById('vendasModal').style.display = 'flex';
+  document.getElementById('vendasBody').innerHTML = '<p class="empty">Carregando…</p>';
+  if(!apiAvailable()){ document.getElementById('vendasBody').innerHTML = '<p class="empty">Exige a planilha (API) ativa.</p>'; return; }
+  apiGetMovimentos()
+    .then(function(m){ vendasMovimentos = Array.isArray(m) ? m : []; renderVendas(); })
+    .catch(function(){ document.getElementById('vendasBody').innerHTML = '<p class="empty">Não consegui carregar as vendas agora. Verifique a conexão.</p>'; });
+}
+function closeVendasModal(){ document.getElementById('vendasModal').style.display = 'none'; }
+function renderVendas(){
+  const box = document.getElementById('vendasBody');
+  if(!vendasMovimentos){ return; }
+  const dias = Number(document.getElementById('vendasPeriodo').value) || 0;
+  let movs = vendasMovimentos;
+  if(dias > 0){
+    const corte = new Date(); corte.setDate(corte.getDate() - dias);
+    const corteStr = corte.toISOString().slice(0,10);
+    movs = movs.filter(m => (m.data || '') >= corteStr);
+  }
+  const vendidos = {}, naoCobrados = {};
+  let receita = 0, custoVend = 0;
+  movs.forEach(m => {
+    const cobrado = m.chave && Number(m.valor) > 0;
+    const custoU = custoDoProduto(m.item);
+    if(cobrado){
+      const v = vendidos[m.item] || {qtd:0, receita:0, custo:0};
+      v.qtd += m.qtd; v.receita += m.qtd * Number(m.valor); v.custo += m.qtd * custoU;
+      vendidos[m.item] = v;
+      receita += m.qtd * Number(m.valor); custoVend += m.qtd * custoU;
+    } else {
+      const motivo = (m.label || '').split(' — ')[0] || 'Baixa';
+      const chave = m.item + ' · ' + motivo;
+      const n = naoCobrados[chave] || {item:m.item, motivo:motivo, qtd:0, custo:0};
+      n.qtd += m.qtd; n.custo += m.qtd * custoU;
+      naoCobrados[chave] = n;
+    }
+  });
+  const itens = Object.keys(vendidos).map(k => Object.assign({item:k}, vendidos[k]))
+                      .sort((a,b) => b.receita - a.receita);
+  const lucro = receita - custoVend;
+  const margem = receita ? Math.round((lucro/receita)*100) : 0;
+  if(!itens.length && !Object.keys(naoCobrados).length){
+    box.innerHTML = '<p class="empty">Nenhum consumo registrado no período. Comece a lançar pelo botão 🧺 na tela Hoje.</p>';
+    return;
+  }
+  let html = '<div class="summary-bar" style="margin-bottom:8px;">' +
+    '<span>Receita: <b>' + fmtMoney(receita) + '</b></span>' +
+    '<span>Custo: <b>' + fmtMoney(custoVend) + '</b></span>' +
+    '<span>Lucro: <b style="color:var(--ok);">' + fmtMoney(lucro) + '</b>' + (receita?' ('+margem+'%)':'') + '</span></div>';
+  html += '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr>' +
+    '<th>Produto</th><th>Qtd</th><th>Receita</th><th>Custo</th><th>Lucro</th></tr></thead><tbody>' +
+    itens.map(it => {
+      const l = it.receita - it.custo;
+      const semCusto = it.custo === 0;
+      return '<tr><td>' + it.item + '</td><td><b>' + it.qtd + '</b></td>' +
+        '<td>' + fmtMoney(it.receita) + '</td>' +
+        '<td>' + (semCusto ? '<span style="color:#c25b00;">custo?</span>' : fmtMoney(it.custo)) + '</td>' +
+        '<td>' + fmtMoney(l) + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+  const naoList = Object.values(naoCobrados).sort((a,b)=>b.custo-a.custo);
+  if(naoList.length){
+    const custoPerdido = naoList.reduce((s,n)=>s+n.custo,0);
+    html += '<hr><h3 style="font-family:\'Playfair Display\',Georgia,serif;font-size:15px;margin:6px 0;">Saídas sem cobrança</h3>' +
+      '<table class="fb-table"><thead><tr><th>Produto</th><th>Motivo</th><th>Qtd</th><th>Custo</th></tr></thead><tbody>' +
+      naoList.map(n => '<tr><td>' + n.item + '</td><td>' + n.motivo + '</td><td>' + n.qtd + '</td><td>' + (n.custo?fmtMoney(n.custo):'-') + '</td></tr>').join('') +
+      '</tbody></table><div style="font-size:13px;margin-top:4px;">Custo total sem cobrança (cortesia/perda/quebra): <b>' + fmtMoney(custoPerdido) + '</b></div>';
+  }
+  box.innerHTML = html;
+}
+
 /* ---- Lançamento rápido de consumo (faxineira na saída) ----
    Tela simples "o que faltou na Cabana X?": toca +/− nos produtos e confirma.
    Tipo do lançamento:
@@ -2925,7 +3027,9 @@ function abrirCobranca(keyEnc){
   const key = decodeURIComponent(keyEnc);
   const res = reservations.find(r => resKey(r) === key);
   if(!res) return;
-  const saldo = Number(res.saldo) || 0;
+  const saldoDiaria = Number(res.saldo) || 0;
+  const frigobar = frigobarDaReserva(res);
+  const saldo = saldoDiaria + frigobar;   // cobra diária em aberto + frigobar
   const body = document.getElementById('cobrancaBody');
   if(!pixKey){
     body.innerHTML = '<p>Você ainda não cadastrou a chave PIX. Abra <b>💳 Dados PIX (cobrança)</b> e preencha primeiro.</p>';
@@ -2935,6 +3039,7 @@ function abrirCobranca(keyEnc){
   const payload = pixPayload(saldo);
   body.innerHTML =
     '<p style="font-size:14px;"><b>' + (res.nome||'') + '</b> — ' + (cabanaFrigobar(res)||'') + '<br>' +
+    (frigobar > 0 ? 'Diária em aberto: ' + fmtMoney(saldoDiaria) + ' + frigobar ' + fmtMoney(frigobar) + '<br>' : '') +
     'Valor a cobrar: <b style="font-size:18px;">' + fmtMoney(saldo) + '</b></p>' +
     '<div id="qrCobranca" style="display:flex;justify-content:center;margin:10px 0;"></div>' +
     '<label style="font-size:12px;">PIX copia e cola</label>' +
@@ -2951,12 +3056,21 @@ function closeCobrancaModal(){ document.getElementById('cobrancaModal').style.di
 // Situação financeira da reserva: quanto já pagou, quando pagou e quanto falta.
 // Valor/saldo vêm do relatório do FazReservas; a data e o pagador vêm da
 // conciliação com o extrato do Sicredi. Somente o administrador vê.
+// Consumo de frigobar lançado nesta reserva (o FazReservas não sabe disso,
+// então soma-se ao que o hóspede deve). Vem de frigobarTotalsCache.
+function frigobarDaReserva(res){
+  if(!res) return 0;
+  const chave = resKey(res);
+  return Number((frigobarTotalsCache && frigobarTotalsCache[chave]) || 0);
+}
 function financeiroReservaHtml(res){
   if(!res || !podeVerPagamento()) return '';
   const valor = Number(res.valor) || 0;
   const saldo = Number(res.saldo) || 0;
   const pago = Math.max(0, valor - saldo);
   const pct = valor ? Math.round((pago / valor) * 100) : 0;
+  const frigobar = frigobarDaReserva(res);
+  const totalDevido = saldo + frigobar;   // saldo da reserva + consumo não cobrado
   const info = statusFinalReserva(res);
   const ov = info.override;
   let quando;
@@ -2984,15 +3098,22 @@ function financeiroReservaHtml(res){
     quando = '<span style="color:#8a7d6f;">Nenhum pagamento registrado até agora.</span>';
   }
   const pill = '<span class="st-pill st-' + info.status + '">' + (CONCIL_LABEL[info.status] || info.status) + '</span>';
+  const linhaFrigobar = frigobar > 0
+    ? `<div class="chk-fin" style="border-color:#f0cf9a;background:#fff8ec;margin-top:6px;">
+         🧺 Consumo de frigobar (fora do FazReservas): <b>${fmtMoney(frigobar)}</b> — a cobrar<br>
+         <b>Total que o hóspede deve: ${fmtMoney(totalDevido)}</b>
+       </div>`
+    : '';
   return `
     <label>💰 Financeiro da reserva</label>
     <div class="summary-bar" style="margin:4px 0 6px;">
-      <span>Total: <b>${fmtMoney(valor)}</b></span>
+      <span>Diária: <b>${fmtMoney(valor)}</b></span>
       <span>Já pago: <b style="color:var(--ok);">${fmtMoney(pago)}</b>${valor ? ' (' + pct + '%)' : ''}</span>
-      <span>Falta: <b style="color:${saldo > 0 ? '#b02a1c' : 'var(--ok)'};">${fmtMoney(saldo)}</b></span>
+      <span>Falta (diária): <b style="color:${saldo > 0 ? '#b02a1c' : 'var(--ok)'};">${fmtMoney(saldo)}</b></span>
     </div>
     <p style="margin:2px 0 6px;font-size:13px;">${quando}</p>
     <div>${pill}</div>
+    ${linhaFrigobar}
     <hr>
   `;
 }

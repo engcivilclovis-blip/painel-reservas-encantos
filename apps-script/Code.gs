@@ -73,6 +73,8 @@ function doGet(e){
     result = getReservasPdf_();
   } else if(action === 'telegramChats'){
     result = getTelegramChats_();
+  } else if(action === 'movimentosTodos'){
+    result = getMovimentosTodos_();
   } else {
     result = {error:'ação inválida'};
   }
@@ -190,6 +192,29 @@ function getTotaisPorReserva_(){
     }
   }
   return totals;
+}
+
+// Todos os movimentos de saída do frigobar (para o relatório de vendas por
+// produto). O custo/margem é calculado no painel, pois o custo mora na Config.
+function getMovimentosTodos_(){
+  var sh = getSheet_(SHEET_MOVIMENTOS);
+  var data = sh.getDataRange().getValues();
+  var tz = Session.getScriptTimeZone();
+  var out = [];
+  for(var i=1;i<data.length;i++){
+    if(data[i][2] !== 'saida') continue;   // só saídas (consumo, cortesia, perda, quebra)
+    var d = data[i][1];
+    out.push({
+      data: (d instanceof Date) ? Utilities.formatDate(d, tz, 'yyyy-MM-dd') : String(d),
+      cabana: data[i][3] || '',
+      item: data[i][4] || '',
+      qtd: Number(data[i][5]) || 0,
+      valor: Number(data[i][6]) || 0,        // valor unitário cobrado (0 = não cobrado)
+      chave: data[i][7] || '',               // vazio = cortesia/perda/quebra
+      label: data[i][8] || ''                // guarda o motivo quando não cobrado
+    });
+  }
+  return out;
 }
 
 function getMovimentosPorReserva_(chave){
