@@ -806,7 +806,10 @@ function fazerBackup_(){
 }
 // Rode esta função UMA vez pelo editor para ligar o backup diário (cria o gatilho
 // e já faz o primeiro backup). Idempotente: remove gatilhos duplicados antes.
-function configurarBackupDiario_(){
+// Sem "_" no fim de propósito: o editor só lista no menu Executar as funções que
+// NÃO terminam em underscore. As demais (fazerBackup_ etc.) seguem privadas — o
+// gatilho consegue chamá-las mesmo assim.
+function configurarBackupDiario(){
   var trigs = ScriptApp.getProjectTriggers();
   var removidos = 0;
   for(var i=0;i<trigs.length;i++){
