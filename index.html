@@ -176,6 +176,11 @@
     .app-shell{flex-direction:column;}
     .sidebar{width:100%;flex-direction:row;overflow-x:auto;position:static;}
     .side-btn{white-space:nowrap;}
+    /* No celular a barra de ferramentas NÃO fica fixa: fixa, ela cobria os
+       cartões das reservas ao rolar. Assim ela rola junto e nada sobrepõe. */
+    .toolbar{position:static;top:auto;}
+    body{padding:10px;}
+    .board{gap:8px;}
   }
 
   #printArea{display:none;}
@@ -611,6 +616,21 @@ let isFaxineira = false;
 // (não vê reservas, não vê frigobar, não vê valores de faxina).
 const MANUTENCAO_PIN = 'manutencao2026';
 let isManutColab = false;
+
+// Mantém o papel escolhido entre recarregamentos, para não pedir o PIN toda hora.
+// É só uma conveniência (o PIN já não é segredo real, por ser página pública).
+function salvarPapel(){
+  const papel = isAdmin ? 'admin' : isFaxineira ? 'faxineira' : isManutColab ? 'manutencao' : '';
+  try { papel ? localStorage.setItem('painelPapel', papel) : localStorage.removeItem('painelPapel'); } catch(e){}
+}
+function restaurarPapel(){
+  let papel = '';
+  try { papel = localStorage.getItem('painelPapel') || ''; } catch(e){}
+  if(papel === 'admin') isAdmin = true;
+  else if(papel === 'faxineira') isFaxineira = true;
+  else if(papel === 'manutencao') isManutColab = true;
+}
+restaurarPapel();
 
 // Cole aqui a URL do Web App do Google Apps Script (termina em /exec) depois de publicar
 // (veja o passo a passo no README.md). Enquanto ficar vazia, o consumo de frigobar é salvo
@@ -2236,6 +2256,7 @@ function submitManutColabPin(){
   }
 }
 function updateAdminUI(){
+  salvarPapel();
   document.getElementById('importSection').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('viewerNotice').style.display = isAdmin ? 'none' : 'flex';
   const btn = document.getElementById('adminToggleBtn');
