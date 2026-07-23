@@ -572,8 +572,12 @@
       <strong>Conciliação bancária — extrato Sicredi</strong>
     </div>
     <div class="toolbar-row">
-      <label class="secondary" style="background:var(--brand-terra);color:#fff;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;">
-        📄 Carregar extrato (PDF)
+      <label class="secondary" style="background:var(--brand-terra);color:#fff;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">
+        ⭐ Carregar extrato (OFX)
+        <input type="file" id="sicrediOfxInput" accept=".ofx,application/x-ofx,text/plain" style="display:none;" onchange="onSicrediOfxSelecionado(this)">
+      </label>
+      <label class="secondary" style="background:var(--brand-gold);color:#3a2417;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;">
+        📄 Extrato (PDF)
         <input type="file" id="sicrediPdfInput" accept="application/pdf,.pdf" style="display:none;" onchange="onSicrediPdfSelecionado(this)">
       </label>
       <button class="secondary" onclick="abrirColarExtrato()">Colar texto (plano B)</button>
@@ -1595,6 +1599,94 @@ function parseExtratoSicredi(texto){
   return {creditos:creditos, periodo:periodo};
 }
 
+// ---------- Extrato em OFX (dados estruturados, mais ricos que o PDF) ----------
+// O OFX traz cada lançamento em <STMTTRN> com TRNTYPE, DTPOSTED (data), TRNAMT
+// (valor com sinal), FITID (id único do lançamento) e NAME/MEMO (quem pagou).
+// É bem mais confiável que raspar o texto do PDF: valor exato, sinal correto,
+// e o FITID evita contar o mesmo recebimento duas vezes.
+function ofxTag_(bloco, tag){
+  // Pega o valor de <TAG>...  até a próxima tag ou fim de linha (OFX é SGML,
+  // muitas vezes sem tag de fechamento).
+  const m = bloco.match(new RegExp('<' + tag + '>\\s*([^<\\r\\n]*)', 'i'));
+  return m ? m[1].trim() : '';
+}
+function ofxDataParaBr_(dt){
+  // DTPOSTED vem como AAAAMMDD[HHMMSS][.xxx][+/-tz]. Só precisamos da data.
+  const m = (dt || '').match(/^(\d{4})(\d{2})(\d{2})/);
+  return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
+}
+function ofxLimparPagador_(s){
+  let t = (s || '').replace(/\s+/g, ' ').trim();
+  // Remove rótulos comuns do Sicredi/PIX e documentos.
+  t = t.replace(/RECEBIMENTO\s+PIX/i, '')
+       .replace(/\bPIX(_CRED|_DEB)?\b/ig, '')
+       .replace(/\bTED\b/ig, '')
+       .replace(/\bDOC\b/ig, '')
+       .replace(/\bCX\S*/ig, '');
+  const tokens = t.split(' ').filter(Boolean);
+  // tira CPF/CNPJ/agência isolados nas pontas
+  while(tokens.length && /^[\d.\-\/]{3,}$/.test(tokens[0])) tokens.shift();
+  while(tokens.length && /^[\d.\-\/]{3,}$/.test(tokens[tokens.length-1])) tokens.pop();
+  return tokens.join(' ').trim();
+}
+function parseOfxSicredi(texto){
+  const creditos = [];
+  const debitos = [];
+  let periodo = '';
+  // período do cabeçalho <BANKTRANLIST><DTSTART>..<DTEND>
+  const ds = ofxDataParaBr_(ofxTag_(texto, 'DTSTART'));
+  const de = ofxDataParaBr_(ofxTag_(texto, 'DTEND'));
+  if(ds && de) periodo = ds + ' a ' + de;
+  const blocos = texto.split(/<STMTTRN>/i).slice(1);
+  blocos.forEach(function(b){
+    const tipo   = ofxTag_(b, 'TRNTYPE').toUpperCase();
+    const data   = ofxDataParaBr_(ofxTag_(b, 'DTPOSTED'));
+    const valor  = parseFloat((ofxTag_(b, 'TRNAMT') || '0').replace(',', '.'));
+    const fitid  = ofxTag_(b, 'FITID');
+    const name   = ofxTag_(b, 'NAME');
+    const memo   = ofxTag_(b, 'MEMO');
+    if(!data || !isFinite(valor) || valor === 0) return;
+    const bruto  = (name + ' ' + memo).trim();
+    const pagador = ofxLimparPagador_(bruto) || ofxLimparPagador_(memo) || bruto;
+    const reg = {data:data, pagador:pagador, valor:Math.abs(valor), fitid:fitid, tipo:tipo, memo:(memo||name)};
+    if(valor > 0) creditos.push(reg); else debitos.push(reg);
+  });
+  return {creditos:creditos, debitos:debitos, periodo:periodo};
+}
+function onSicrediOfxSelecionado(input){
+  if(!isAdmin){ alert('Somente o administrador pode carregar o extrato.'); input.value=''; return; }
+  const file = input.files && input.files[0];
+  if(!file) return;
+  document.getElementById('sicrediStatusMsg').textContent = '⏳ Lendo o OFX...';
+  const reader = new FileReader();
+  reader.onload = function(){
+    try {
+      const r = parseOfxSicredi(String(reader.result || ''));
+      if(!r.creditos.length){
+        document.getElementById('sicrediStatusMsg').textContent = '⚠️ Nenhum recebimento (entrada) encontrado no OFX.';
+        alert('Não encontrei recebimentos neste OFX. Confira se é o arquivo da conta Sicredi correto.');
+        return;
+      }
+      // Deduplica por FITID (id único do lançamento no banco).
+      const vistos = {};
+      sicrediCreditos = r.creditos.filter(function(c){
+        if(c.fitid && vistos[c.fitid]) return false;
+        if(c.fitid) vistos[c.fitid] = true;
+        return true;
+      });
+      sicrediMeta = {periodo:r.periodo, atualizadoEm:new Date().toLocaleString('pt-BR'), origem:'OFX ' + file.name};
+      salvarExtratoNaConfig();
+      renderConciliacao();
+    } catch(err){
+      document.getElementById('sicrediStatusMsg').textContent = '❌ ' + err.message;
+      alert('Não consegui ler o OFX: ' + err.message);
+    }
+  };
+  reader.onerror = function(){ document.getElementById('sicrediStatusMsg').textContent = '❌ Não consegui ler o arquivo.'; };
+  reader.readAsText(file, 'ISO-8859-1');   // OFX do Sicredi costuma vir em latin-1
+  input.value = '';
+}
+
 // ---------- Carregar o PDF (pdf.js) ----------
 function carregarPdfJs(){
   return new Promise(function(resolve, reject){
@@ -1753,7 +1845,7 @@ function renderConciliacao(){
   if(sicrediCreditos.length){
     msg.textContent = '✅ ' + sicrediCreditos.length + ' recebimento(s)' + (sicrediMeta.periodo ? ' · período ' + sicrediMeta.periodo : '') + (sicrediMeta.atualizadoEm ? ' · carregado ' + sicrediMeta.atualizadoEm : '');
   } else {
-    msg.textContent = 'Nenhum extrato carregado ainda. Toque em "Carregar extrato (PDF)".';
+    msg.textContent = 'Nenhum extrato carregado ainda. Toque em "Carregar extrato (OFX)" — dá dados mais completos que o PDF.';
   }
 
   const showAll = document.getElementById('concilShowAll').checked;
@@ -1801,8 +1893,12 @@ function renderConciliacao(){
   if(naoVinculados.length && !soAlertas){
     credBox.innerHTML = '<details style="margin:6px 0 12px;"><summary style="cursor:pointer;font-weight:600;font-size:13px;">💸 ' +
       naoVinculados.length + ' recebimento(s) no extrato sem reserva correspondente (clique para ver)</summary>' +
-      '<table class="concil-table" style="margin-top:8px;"><tr><th>Data</th><th>Pagador</th><th>Valor</th></tr>' +
-      naoVinculados.map(function(c){ return '<tr><td>' + c.data + '</td><td>' + c.pagador + '</td><td>' + fmtMoney(c.valor) + '</td></tr>'; }).join('') +
+      '<table class="concil-table" style="margin-top:8px;"><tr><th>Data</th><th>Pagador</th><th>Valor</th><th>Origem</th></tr>' +
+      naoVinculados.map(function(c){
+        const orig = c.tipo ? (c.tipo === 'CREDIT' ? 'PIX/crédito' : c.tipo) : '';
+        const memo = (c.memo && norm(c.memo) !== norm(c.pagador)) ? '<div class="concil-sub">' + c.memo + '</div>' : '';
+        return '<tr><td>' + c.data + '</td><td>' + c.pagador + memo + '</td><td>' + fmtMoney(c.valor) + '</td><td class="concil-sub">' + orig + '</td></tr>';
+      }).join('') +
       '</table></details>';
   } else { credBox.innerHTML = ''; }
 
