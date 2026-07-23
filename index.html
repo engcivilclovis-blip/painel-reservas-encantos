@@ -464,6 +464,14 @@
     </div>
     <button onclick="salvarAlertas()">Salvar</button>
     <button class="secondary" onclick="testarAlerta()">📲 Testar (envia para o admin)</button>
+    <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);">
+    <label>🔒 Proteção do backend (bloqueia acesso anônimo à API)</label>
+    <p id="protecaoStatus" style="margin:4px 0 8px;color:#8a7d6f;font-size:13px;">—</p>
+    <div class="frigobar-add">
+      <button class="secondary" id="btnAtivarProtecao" onclick="ativarProtecao()">Ativar proteção</button>
+      <button class="secondary" id="btnDesativarProtecao" onclick="desativarProtecao()">Desativar</button>
+    </div>
+    <p style="margin:8px 0 0;color:#8a7d6f;font-size:12px;">Depois de ativar, só o painel (que envia o segredo) consegue ler/gravar dados. Se um dia o painel parar de sincronizar após trocar a URL/segredo, é só desativar aqui.</p>
   </div>
 </div>
 
@@ -641,6 +649,15 @@ restaurarPapel();
 // apenas neste navegador, sem sincronizar com outros dispositivos.
 const FRIGOBAR_API_URL = 'https://script.google.com/macros/s/AKfycbytiStVdXSsnoN0lQD5EIY5iaMj7jFzoKNdKwku7B9q2PuxgNlgHRir8g1R8DQzR_bM/exec';
 
+// Segredo compartilhado com o robô (Apps Script). É enviado no parâmetro "k" de
+// toda chamada. Serve para barrar acesso ANÔNIMO direto à URL /exec. Como esta
+// página é pública, quem tiver o endereço do painel também vê este valor — não é
+// senha de verdade; é uma tranca simples contra quem só achou a URL do robô.
+// A proteção só passa a valer quando o mesmo valor for gravado na Config
+// (chave "apiSecret"), pelo botão "Proteção do backend". Se um dia trocar aqui,
+// grave o novo valor na Config também (senão o painel para de sincronizar).
+const API_SECRET = 'enc-a7f3k9p2-q8w4';
+
 // Catálogo real de produtos do frigobar (nome e preço de venda). Serve de valor
 // inicial/fallback; quando a API estiver configurada, o catálogo é substituído
 // pelo que estiver cadastrado na planilha (aba Produtos), editável pelo administrador.
@@ -707,10 +724,20 @@ function cabanaFrigobar(res){
 }
 
 function apiAvailable(){ return !!FRIGOBAR_API_URL; }
+// Anexa o segredo (k) às chamadas GET destinadas ao robô. Os POST levam o k
+// dentro do corpo (ver apiPost). Chamadas para outros endereços passam intactas.
+function comSegredo_(url){
+  if(typeof url === 'string' && url.indexOf(FRIGOBAR_API_URL) === 0){
+    return url + (url.indexOf('?') === -1 ? '?' : '&') + 'k=' + encodeURIComponent(API_SECRET);
+  }
+  return url;
+}
 function fetchWithTimeout_(url, options, timeoutMs){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs || 10000);
-  return fetch(url, Object.assign({}, options, {signal: controller.signal}))
+  const ehPost = options && options.method && String(options.method).toUpperCase() === 'POST';
+  const alvo = ehPost ? url : comSegredo_(url);   // no POST o k vai no corpo
+  return fetch(alvo, Object.assign({}, options, {signal: controller.signal}))
     .finally(() => clearTimeout(timer));
 }
 function apiGetEstoque(){
@@ -723,7 +750,8 @@ function apiGetMovimentos(reservaChave){
   return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=movimentos&reserva=' + encodeURIComponent(reservaChave)).then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
 function apiPost(payload){
-  return fetchWithTimeout_(FRIGOBAR_API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(payload) })
+  const corpo = Object.assign({k:API_SECRET}, payload);   // segredo dentro do corpo
+  return fetchWithTimeout_(FRIGOBAR_API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(corpo) })
     .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
 function apiGetObservacoes(){
@@ -1054,6 +1082,7 @@ function refreshFrigobarCache(){
         if(config.waAdminKey !== undefined) waAdminKey = config.waAdminKey || '';
         if(config.frigobarCustos){ try { frigobarCustos = JSON.parse(config.frigobarCustos) || {}; } catch(e){} }
         if(config.checkinsFeitos){ try { checkinsFeitos = JSON.parse(config.checkinsFeitos) || {}; } catch(e){} }
+        protecaoAtiva = !!config.apiSecretSet;
         carregarConciliacaoDaConfig(config);
       }
       renderStock();
@@ -2003,7 +2032,30 @@ function salvarPix(){
 // Guardamos telefone + apikey de cada responsável na Config (sincroniza entre
 // aparelhos). O canal pode ser trocado depois para Telegram/Meta sem refazer nada.
 let waManutFone = '', waManutKey = '', waFaxinaFone = '', waFaxinaKey = '', waAdminFone = '', waAdminKey = '';
+let protecaoAtiva = false;
+function atualizarStatusProtecao(){
+  const el = document.getElementById('protecaoStatus');
+  if(el) el.textContent = protecaoAtiva
+    ? '✅ Ativa — a API só aceita chamadas do painel.'
+    : '⚠️ Desligada — qualquer um com a URL do robô consegue acessar.';
+}
+function ativarProtecao(){
+  if(!isAdmin){ alert('Somente o administrador pode alterar a proteção.'); return; }
+  if(!apiAvailable()){ alert('Exige a planilha (API) ativa.'); return; }
+  if(!confirm('Ativar a proteção do backend?\n\nDepois disto, só este painel (que envia o segredo) consegue ler/gravar. Se você usa o painel em outros aparelhos, eles precisam estar com esta mesma versão publicada.')) return;
+  apiSalvarConfig('apiSecret', API_SECRET)
+    .then(function(){ protecaoAtiva = true; atualizarStatusProtecao(); alert('Proteção ativada. Acesso anônimo à API bloqueado.'); })
+    .catch(function(){ alert('Não consegui ativar agora. Verifique a conexão e tente de novo.'); });
+}
+function desativarProtecao(){
+  if(!isAdmin){ alert('Somente o administrador pode alterar a proteção.'); return; }
+  if(!apiAvailable()){ alert('Exige a planilha (API) ativa.'); return; }
+  apiSalvarConfig('apiSecret', '')
+    .then(function(){ protecaoAtiva = false; atualizarStatusProtecao(); alert('Proteção desligada.'); })
+    .catch(function(){ alert('Não consegui desligar agora. Verifique a conexão e tente de novo.'); });
+}
 function openTelegramModal(){
+  atualizarStatusProtecao();
   document.getElementById('waManutFone').value = waManutFone;
   document.getElementById('waManutKey').value = waManutKey;
   document.getElementById('waFaxinaFone').value = waFaxinaFone;

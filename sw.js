@@ -8,7 +8,7 @@
  * Nunca intercepta as chamadas da API (Apps Script) nem dos CDNs: são de outra
  * origem e precisam ir diretas — dados de reserva/estoque não podem vir de cache.
  */
-var CACHE = 'encantos-v1';
+var CACHE = 'encantos-v2';
 var ESSENCIAIS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function(e){

@@ -46,7 +46,38 @@ function jsonOutput_(obj){
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// ---------- Proteção de acesso (segredo compartilhado) ----------
+// O painel é uma página pública, então não há login de verdade. Este segredo
+// serve para BARRAR o acesso ANÔNIMO direto à URL /exec (scrapers, quem só
+// descobriu o endereço do robô). Ele fica guardado na aba Config (chave
+// "apiSecret") e o painel envia o mesmo valor no parâmetro "k" de toda chamada.
+//
+// Migração sem quebrar nada: enquanto a chave "apiSecret" NÃO existir/estiver
+// vazia na Config, tudo é liberado. A proteção só passa a valer quando você
+// preenche esse valor (pelo botão "Proteção do backend" no painel). Para
+// desligar, basta esvaziar a chave.
+function apiSecretConfigurado_(){
+  var sh = getSheet_(SHEET_CONFIG);
+  var data = sh.getDataRange().getValues();
+  for(var i=1;i<data.length;i++){
+    if(String(data[i][0]) === 'apiSecret') return String(data[i][1] || '');
+  }
+  return '';
+}
+function autorizado_(e){
+  var segredo = apiSecretConfigurado_();
+  if(!segredo) return true;                       // sem segredo definido => libera (migração)
+  var recebido = '';
+  if(e && e.parameter && e.parameter.k){
+    recebido = String(e.parameter.k);
+  } else if(e && e.postData && e.postData.contents){
+    try { recebido = String((JSON.parse(e.postData.contents) || {}).k || ''); } catch(_e){}
+  }
+  return recebido === segredo;
+}
+
 function doGet(e){
+  if(!autorizado_(e)) return jsonOutput_({error:'não autorizado'});
   var action = e.parameter.action;
   var result;
   if(action === 'estoque'){
@@ -82,6 +113,7 @@ function doGet(e){
 }
 
 function doPost(e){
+  if(!autorizado_(e)) return jsonOutput_({ok:false, error:'não autorizado'});
   var body = JSON.parse(e.postData.contents);
   var result;
   if(body.action === 'consumo'){
@@ -336,12 +368,23 @@ function salvarFaxina_(body){
   return {ok:true};
 }
 
+// Chaves que são credenciais puramente de servidor: o ENVIO (Telegram/WhatsApp)
+// acontece aqui no robô, então o navegador nunca precisa do valor. Não devolvemos
+// esses valores no GET; só sinalizamos "<chave>Set:true" para o painel saber que
+// já está configurada. O apiSecret também nunca sai daqui.
+var CONFIG_SECRETA = ['telegramToken', 'apiSecret'];
 function getConfig_(){
   var sh = getSheet_(SHEET_CONFIG);
   var data = sh.getDataRange().getValues();
   var out = {};
   for(var i=1;i<data.length;i++){
-    if(data[i][0]) out[data[i][0]] = data[i][1];
+    var chave = data[i][0];
+    if(!chave) continue;
+    if(CONFIG_SECRETA.indexOf(String(chave)) !== -1){
+      if(String(data[i][1] || '') !== '') out[chave + 'Set'] = true;   // não devolve o valor
+    } else {
+      out[chave] = data[i][1];
+    }
   }
   return out;
 }
