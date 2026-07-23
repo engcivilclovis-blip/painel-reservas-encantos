@@ -124,6 +124,15 @@
   .chk-fin{background:#f7f3ee;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:14px;}
   .chk-obs{background:#fffdf6;border:1px dashed var(--border);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px;}
   .zap{background:#25D366 !important;color:#fff;}
+  /* ---- Modal rápido de consumo do frigobar ---- */
+  .consumo-linha{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);}
+  .cl-nome{flex:1;font-size:14px;}
+  .cl-preco{font-size:12px;color:#8a7d6f;white-space:nowrap;}
+  .cl-step{display:flex;align-items:center;gap:8px;}
+  .cl-step button{width:34px;height:34px;padding:0;font-size:20px;line-height:1;border-radius:8px;}
+  .cl-step b{min-width:20px;text-align:center;font-size:16px;}
+  .cl-linha-ativa{background:#fbf7f1;}
+  .consumo-total{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:16px;}
   .empty{color:#a89b8d;font-size:11px;padding:4px 8px;}
   .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:#5a5049;}
   .legend span{display:inline-flex;align-items:center;gap:5px;}
@@ -215,6 +224,16 @@
     </div>
   </div>
   <div id="hojeBox"></div>
+</div>
+
+<div class="modal-overlay" id="consumoModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>🧺 Consumo do frigobar</h2>
+      <button class="secondary" onclick="closeConsumoModal()">Fechar</button>
+    </div>
+    <div id="consumoBody"></div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="cobrancaModal" style="display:none;">
@@ -2774,6 +2793,7 @@ function cardCheckinHtml(res, tipo){
     (obs ? '<div class="chk-obs">📝 ' + obs + '</div>' : '') +
     '<div class="chk-acoes">' +
       (zap ? '<a class="mini zap" href="' + zap + '" target="_blank" rel="noopener" style="padding:5px 10px;border-radius:6px;">💬 WhatsApp</a>' : '') +
+      (isOperador() ? '<button class="mini secondary" onclick="abrirConsumoRapido(\'' + kEnc + '\')">🧺 Lançar consumo</button>' : '') +
       '<button class="mini secondary" onclick="abrirFaxinaDetalhe(\'' + key.replace(/'/g,"\\'") + '\')">📄 Abrir detalhes</button>' +
       '<button class="mini ' + (feito?'secondary':'') + '" onclick="marcarCheckin(\'' + kEnc + '\')">' + (feito?'↩️ Desfazer chegada':'✅ Marcar chegada') + '</button>' +
     '</div></div>';
@@ -2808,6 +2828,97 @@ function renderHoje(){
     '<div class="hoje-sec"><h3>🏠 Hospedados agora (' + hospedados.length + ')</h3>' +
       (hospedados.length ? hospedados.map(r => cardCheckinHtml(r,'atual')).join('') : '<p class="empty">Nenhum hóspede na casa.</p>') + '</div>';
 }
+/* ---- Lançamento rápido de consumo (faxineira na saída) ----
+   Tela simples "o que faltou na Cabana X?": toca +/− nos produtos e confirma.
+   Tipo do lançamento:
+     • Consumo do hóspede  → dá baixa no estoque E cobra na conta da reserva.
+     • Cortesia / Perda / Quebra → dá baixa no estoque SEM cobrar ninguém
+       (reserva vazia + valor 0, então não entra no total do hóspede).
+   Tudo usa o endpoint 'consumo' já publicado — nenhuma mudança no robô. */
+let consumoKey = null, consumoQtd = {}, consumoTipo = 'consumo';
+function abrirConsumoRapido(keyEnc){
+  if(!isOperador()){ alert('Somente o administrador ou o colaborador da limpeza podem lançar consumo.'); return; }
+  consumoKey = decodeURIComponent(keyEnc);
+  consumoQtd = {}; consumoTipo = 'consumo';
+  renderConsumoModal();
+  document.getElementById('consumoModal').style.display = 'flex';
+}
+function closeConsumoModal(){ document.getElementById('consumoModal').style.display = 'none'; }
+function stepConsumo(nomeEnc, delta){
+  const nome = decodeURIComponent(nomeEnc);
+  consumoQtd[nome] = Math.max(0, (consumoQtd[nome] || 0) + delta);
+  renderConsumoModal();
+}
+function setConsumoTipo(v){ consumoTipo = v; renderConsumoModal(); }
+function renderConsumoModal(){
+  const body = document.getElementById('consumoBody');
+  const res = reservations.find(r => resKey(r) === consumoKey);
+  const cab = res ? cabanaFrigobar(res) : '';
+  if(!productCatalog.length){
+    body.innerHTML = '<p class="empty">Nenhum produto cadastrado. Cadastre em "🧾 Produtos do frigobar" (ou use a carga inicial) antes de lançar consumo.</p>';
+    return;
+  }
+  const cobra = consumoTipo === 'consumo';
+  const linhas = productCatalog.map(p => {
+    const q = consumoQtd[p.nome] || 0;
+    const nEnc = encodeURIComponent(p.nome);
+    return '<div class="consumo-linha' + (q>0?' cl-linha-ativa':'') + '">' +
+      '<span class="cl-nome">' + p.nome + '</span>' +
+      (cobra ? '<span class="cl-preco">' + fmtMoney(p.preco) + '</span>' : '') +
+      '<span class="cl-step">' +
+        '<button class="secondary" onclick="stepConsumo(\'' + nEnc + '\',-1)">−</button>' +
+        '<b>' + q + '</b>' +
+        '<button onclick="stepConsumo(\'' + nEnc + '\',1)">+</button>' +
+      '</span></div>';
+  }).join('');
+  const itens = productCatalog.filter(p => (consumoQtd[p.nome]||0) > 0);
+  const total = itens.reduce((s,p) => s + (consumoQtd[p.nome] * (Number(p.preco)||0)), 0);
+  const qtdTotal = itens.reduce((s,p) => s + consumoQtd[p.nome], 0);
+  body.innerHTML =
+    '<p style="margin:0 0 8px;font-size:14px;">🏠 <b>' + (cab||'-') + '</b>' + (res? ' · ' + (res.nome||'') : '') + '</p>' +
+    '<label>Tipo do lançamento</label>' +
+    '<select onchange="setConsumoTipo(this.value)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;">' +
+      '<option value="consumo"' + (consumoTipo==='consumo'?' selected':'') + '>Consumo do hóspede (cobra na conta)</option>' +
+      '<option value="Cortesia"' + (consumoTipo==='Cortesia'?' selected':'') + '>Cortesia (não cobra)</option>' +
+      '<option value="Perda"' + (consumoTipo==='Perda'?' selected':'') + '>Perda / vencido (não cobra)</option>' +
+      '<option value="Quebra"' + (consumoTipo==='Quebra'?' selected':'') + '>Quebra (não cobra)</option>' +
+    '</select>' +
+    linhas +
+    '<div class="consumo-total"><span>' + qtdTotal + ' item(ns)' + (cobra ? ' · <b>' + fmtMoney(total) + '</b>' : ' · <span style="color:#8a7d6f;">sem cobrança</span>') + '</span>' +
+    '<button onclick="confirmarConsumoRapido()"' + (qtdTotal? '' : ' disabled') + '>' + (cobra?'Lançar e cobrar':'Dar baixa no estoque') + '</button></div>';
+}
+function confirmarConsumoRapido(){
+  if(!isOperador() || !consumoKey) return;
+  const res = reservations.find(r => resKey(r) === consumoKey);
+  const cab = res ? cabanaFrigobar(res) : '';
+  const itens = productCatalog.filter(p => (consumoQtd[p.nome]||0) > 0);
+  if(!itens.length) return;
+  const cobra = consumoTipo === 'consumo';
+  const chamadas = itens.map(p => {
+    if(!apiAvailable()){
+      // modo offline: só cobra na conta local
+      if(cobra){ getDetail(consumoKey).items.push({desc:p.nome, qtd:consumoQtd[p.nome], valor:Number(p.preco)||0, data:new Date().toISOString()}); }
+      return Promise.resolve();
+    }
+    return apiPost({
+      action:'consumo',
+      reservaChave: cobra ? consumoKey : '',
+      reservaLabel: cobra ? (res ? res.nome : consumoKey) : (consumoTipo + ' — ' + cab),
+      cabana: cab,
+      item: p.nome,
+      qtd: consumoQtd[p.nome],
+      valorUnit: cobra ? (Number(p.preco)||0) : 0
+    });
+  });
+  Promise.all(chamadas).then(function(){
+    if(!apiAvailable()) saveDetails();
+    closeConsumoModal();
+    refreshFrigobarCache();
+    if(currentDetailKey === consumoKey) loadFrigobarTableFor(consumoKey);
+    alert(cobra ? 'Consumo lançado na conta do hóspede e baixado do estoque.' : 'Baixa registrada no estoque (' + consumoTipo + '), sem cobrança.');
+  }).catch(function(){ alert('Não foi possível registrar tudo agora. Verifique a conexão e confira o que já entrou.'); });
+}
+
 // ---- Cobrança do saldo por PIX (somente administrador) ----
 function abrirCobranca(keyEnc){
   if(!podeVerPagamento()){ alert('Somente o administrador pode cobrar.'); return; }
