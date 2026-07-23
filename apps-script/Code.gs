@@ -30,9 +30,9 @@ function getSheet_(name){
   if(!sh){
     sh = ss.insertSheet(name);
     if(name === SHEET_ESTOQUE) sh.appendRow(['Cabana','Item','Estoque','Minimo']);
-    if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Cabana','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel']);
+    if(name === SHEET_MOVIMENTOS) sh.appendRow(['ID','Timestamp','Tipo','Cabana','Item','Qtd','ValorUnit','ReservaChave','ReservaLabel','Cancelado']);
     if(name === SHEET_OBSERVACOES) sh.appendRow(['ReservaChave','ReservaLabel','Observacao','AtualizadoEm']);
-    if(name === SHEET_PRODUTOS) sh.appendRow(['Nome','Preco']);
+    if(name === SHEET_PRODUTOS) sh.appendRow(['Nome','Preco','Removido']);
     if(name === SHEET_FAXINAS) sh.appendRow(['ReservaChave','ReservaLabel','Cabana','DataExecucao','ExecutadoPor','Valor','Pago','DataPagamento','ObsManutencao','FormaPagamento']);
     if(name === SHEET_CONFIG) sh.appendRow(['Chave','Valor']);
     if(name === SHEET_ORDENS_SERVICO) sh.appendRow(['ID','Timestamp','Cabana','ReservaChave','ReservaLabel','Descricao','Status','Tipo','DataAgendada']);
@@ -204,8 +204,11 @@ function removerMovimento_(id){
   var data = sh.getDataRange().getValues();
   for(var i=1;i<data.length;i++){
     if(data[i][0] === id){
+      if(data[i][9]) return {ok:true};       // já cancelado antes: não reverte estoque de novo
       var tipo = data[i][2], cabana = data[i][3], item = data[i][4], qtd = Number(data[i][5])||0;
-      sh.deleteRow(i+1);
+      // Soft-delete: marca como cancelado em vez de apagar a linha, para manter
+      // o histórico (dá para reverter esvaziando a célula "Cancelado" na planilha).
+      sh.getRange(i+1, 10).setValue(new Date());
       ajustarEstoque_(cabana, item, tipo === 'saida' ? qtd : -qtd);
       return {ok:true};
     }
@@ -218,6 +221,7 @@ function getTotaisPorReserva_(){
   var data = sh.getDataRange().getValues();
   var totals = {};
   for(var i=1;i<data.length;i++){
+    if(data[i][9]) continue;                 // pula movimentos cancelados
     var tipo = data[i][2], qtd = Number(data[i][5])||0, valorUnit = Number(data[i][6])||0, chave = data[i][7];
     if(tipo === 'saida' && chave){
       totals[chave] = (totals[chave]||0) + qtd*valorUnit;
@@ -235,6 +239,7 @@ function getMovimentosTodos_(){
   var out = [];
   for(var i=1;i<data.length;i++){
     if(data[i][2] !== 'saida') continue;   // só saídas (consumo, cortesia, perda, quebra)
+    if(data[i][9]) continue;               // pula cancelados
     var d = data[i][1];
     out.push({
       data: (d instanceof Date) ? Utilities.formatDate(d, tz, 'yyyy-MM-dd') : String(d),
@@ -254,6 +259,7 @@ function getMovimentosPorReserva_(chave){
   var data = sh.getDataRange().getValues();
   var out = [];
   for(var i=1;i<data.length;i++){
+    if(data[i][9]) continue;               // pula cancelados
     if(data[i][2]==='saida' && String(data[i][7])===String(chave)){
       out.push({id:data[i][0], desc:data[i][4], qtd:Number(data[i][5])||0, valor:Number(data[i][6])||0});
     }
@@ -298,6 +304,7 @@ function getProdutos_(){
   var out = [];
   for(var i=1;i<data.length;i++){
     if(!data[i][0]) continue;
+    if(data[i][2]) continue;               // pula produtos removidos (col Removido)
     out.push({nome:data[i][0], preco:Number(data[i][1])||0});
   }
   return out;
@@ -316,10 +323,11 @@ function salvarProduto_(body){
   var nomeOriginal = body.nomeOriginal || body.nome;
   var row = findProdutoRow_(sh, nomeOriginal);
   if(row === -1){
-    sh.appendRow([body.nome, Number(body.preco)||0]);
+    sh.appendRow([body.nome, Number(body.preco)||0, '']);
   } else {
     sh.getRange(row,1).setValue(body.nome);
     sh.getRange(row,2).setValue(Number(body.preco)||0);
+    sh.getRange(row,3).setValue('');       // reativa se estava removido
   }
   return {ok:true};
 }
@@ -328,7 +336,9 @@ function removerProduto_(nome){
   var sh = getSheet_(SHEET_PRODUTOS);
   var row = findProdutoRow_(sh, nome);
   if(row === -1) return {ok:false, error:'produto não encontrado'};
-  sh.deleteRow(row);
+  // Soft-delete: marca como removido (col Removido) em vez de apagar a linha,
+  // preservando o preço histórico. Para reverter, esvazie a célula na planilha.
+  sh.getRange(row,3).setValue(new Date());
   return {ok:true};
 }
 
@@ -761,4 +771,49 @@ function criarAcionadorReservas(){
   }
   ScriptApp.newTrigger('atualizarReservasDoEmail').timeBased().everyHours(2).create();
   return {ok:true, info:'Acionador ativo: atualiza a cada 2 horas.' + (removidos ? ' (' + removidos + ' acionador(es) antigo(s) substituído(s))' : '')};
+}
+
+// ---------- Backup automático da planilha ----------
+// Faz uma cópia datada da planilha inteira numa pasta do Drive, todo dia. Protege
+// contra edição/exclusão acidental (e até contra o arquivo original sumir). Guarda
+// só as últimas BACKUP_MANTER cópias, para não encher o Drive.
+//
+// ATENÇÃO: usa DriveApp e ScriptApp — escopos que o dono precisa AUTORIZAR uma vez.
+// Rode "configurarBackupDiario_" pelo editor (botão Executar) e aprove a permissão
+// ANTES de publicar o web app com este código, senão o /exec quebra por falta de
+// autorização.
+var BACKUP_FOLDER = 'Backups - Painel Encantos';
+var BACKUP_MANTER = 30;
+function pastaBackup_(){
+  var it = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(BACKUP_FOLDER);
+}
+function fazerBackup_(){
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var arq = DriveApp.getFileById(ss.getId());
+  var pasta = pastaBackup_();
+  var tz = Session.getScriptTimeZone();
+  var nome = 'Backup ' + Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HHmm') + ' - ' + ss.getName();
+  arq.makeCopy(nome, pasta);
+  // Poda: mantém só as cópias mais recentes.
+  var it = pasta.getFiles();
+  var lista = [];
+  while(it.hasNext()) lista.push(it.next());
+  lista.sort(function(a, b){ return b.getDateCreated().getTime() - a.getDateCreated().getTime(); });
+  var apagados = 0;
+  for(var i = BACKUP_MANTER; i < lista.length; i++){ lista[i].setTrashed(true); apagados++; }
+  return {ok:true, nome:nome, totalNaPasta:Math.min(lista.length, BACKUP_MANTER), podados:apagados};
+}
+// Rode esta função UMA vez pelo editor para ligar o backup diário (cria o gatilho
+// e já faz o primeiro backup). Idempotente: remove gatilhos duplicados antes.
+function configurarBackupDiario_(){
+  var trigs = ScriptApp.getProjectTriggers();
+  var removidos = 0;
+  for(var i=0;i<trigs.length;i++){
+    if(trigs[i].getHandlerFunction() === 'fazerBackup_'){ ScriptApp.deleteTrigger(trigs[i]); removidos++; }
+  }
+  ScriptApp.newTrigger('fazerBackup_').timeBased().everyDays(1).atHour(3).create();
+  var r = fazerBackup_();
+  r.gatilho = 'diário às 3h (' + removidos + ' antigo(s) substituído(s))';
+  return r;
 }
