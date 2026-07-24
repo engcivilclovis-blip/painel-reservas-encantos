@@ -773,50 +773,6 @@ function criarAcionadorReservas(){
   return {ok:true, info:'Acionador ativo: atualiza a cada 2 horas.' + (removidos ? ' (' + removidos + ' acionador(es) antigo(s) substituído(s))' : '')};
 }
 
-// ---------- Backup automático da planilha ----------
-// Faz uma cópia datada da planilha inteira numa pasta do Drive, todo dia. Protege
-// contra edição/exclusão acidental (e até contra o arquivo original sumir). Guarda
-// só as últimas BACKUP_MANTER cópias, para não encher o Drive.
-//
-// ATENÇÃO: usa DriveApp e ScriptApp — escopos que o dono precisa AUTORIZAR uma vez.
-// Rode "configurarBackupDiario_" pelo editor (botão Executar) e aprove a permissão
-// ANTES de publicar o web app com este código, senão o /exec quebra por falta de
-// autorização.
-var BACKUP_FOLDER = 'Backups - Painel Encantos';
-var BACKUP_MANTER = 30;
-function pastaBackup_(){
-  var it = DriveApp.getFoldersByName(BACKUP_FOLDER);
-  return it.hasNext() ? it.next() : DriveApp.createFolder(BACKUP_FOLDER);
-}
-function fazerBackup_(){
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var arq = DriveApp.getFileById(ss.getId());
-  var pasta = pastaBackup_();
-  var tz = Session.getScriptTimeZone();
-  var nome = 'Backup ' + Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HHmm') + ' - ' + ss.getName();
-  arq.makeCopy(nome, pasta);
-  // Poda: mantém só as cópias mais recentes.
-  var it = pasta.getFiles();
-  var lista = [];
-  while(it.hasNext()) lista.push(it.next());
-  lista.sort(function(a, b){ return b.getDateCreated().getTime() - a.getDateCreated().getTime(); });
-  var apagados = 0;
-  for(var i = BACKUP_MANTER; i < lista.length; i++){ lista[i].setTrashed(true); apagados++; }
-  return {ok:true, nome:nome, totalNaPasta:Math.min(lista.length, BACKUP_MANTER), podados:apagados};
-}
-// Rode esta função UMA vez pelo editor para ligar o backup diário (cria o gatilho
-// e já faz o primeiro backup). Idempotente: remove gatilhos duplicados antes.
-// Sem "_" no fim de propósito: o editor só lista no menu Executar as funções que
-// NÃO terminam em underscore. As demais (fazerBackup_ etc.) seguem privadas — o
-// gatilho consegue chamá-las mesmo assim.
-function configurarBackupDiario(){
-  var trigs = ScriptApp.getProjectTriggers();
-  var removidos = 0;
-  for(var i=0;i<trigs.length;i++){
-    if(trigs[i].getHandlerFunction() === 'fazerBackup_'){ ScriptApp.deleteTrigger(trigs[i]); removidos++; }
-  }
-  ScriptApp.newTrigger('fazerBackup_').timeBased().everyDays(1).atHour(3).create();
-  var r = fazerBackup_();
-  r.gatilho = 'diário às 3h (' + removidos + ' antigo(s) substituído(s))';
-  return r;
-}
+// O backup automático da planilha (DriveApp) fica em apps-script/Backup.gs.txt e
+// NÃO é publicado aqui, pois exige o dono autorizar a permissão do Drive uma vez.
+// Veja as instruções de ativação no topo daquele arquivo.

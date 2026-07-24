@@ -1,0 +1,61 @@
+// ============================================================================
+//  BACKUP AUTOMÁTICO — ATIVAÇÃO EM 2 PASSOS (precisa de permissão do Drive)
+// ============================================================================
+// Este trecho NÃO está no robô publicado, porque usa DriveApp/ScriptApp — escopos
+// que exigem o dono AUTORIZAR uma vez. Se fosse publicado sem autorizar, o /exec
+// quebraria por falta de permissão. Por isso fica separado aqui.
+//
+// COMO LIGAR O BACKUP DIÁRIO:
+//   1. No editor do Apps Script (Extensões > Apps Script), cole TODO este bloco
+//      no fim do Código.gs e salve (Ctrl+S).
+//   2. No seletor de função (ao lado de "Depuração"), escolha "configurarBackupDiario"
+//      e clique em Executar.
+//   3. Aprove a autorização: "Revisar permissões" > escolher a conta >
+//      "Avançado" > "Acessar API Frigobar (não seguro)" > "Permitir".
+//   4. Confira no "Registro de execução": deve retornar algo como
+//      {ok:true, nome:"Backup 2026-... - ...", gatilho:"diário às 3h"}.
+//   Pronto: cria o gatilho diário (3h) e já faz a 1ª cópia na pasta do Drive
+//   "Backups - Painel Encantos" (mantém as últimas 30).
+//
+//   Depois de autorizado, pode publicar o web app normalmente com este bloco
+//   incluído (Implantar > Nova versão) — aí o /exec já terá o escopo aprovado.
+// ============================================================================
+
+var BACKUP_FOLDER = 'Backups - Painel Encantos';
+var BACKUP_MANTER = 30;
+function pastaBackup_(){
+  var it = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(BACKUP_FOLDER);
+}
+function fazerBackup_(){
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var arq = DriveApp.getFileById(ss.getId());
+  var pasta = pastaBackup_();
+  var tz = Session.getScriptTimeZone();
+  var nome = 'Backup ' + Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HHmm') + ' - ' + ss.getName();
+  arq.makeCopy(nome, pasta);
+  // Poda: mantém só as cópias mais recentes.
+  var it = pasta.getFiles();
+  var lista = [];
+  while(it.hasNext()) lista.push(it.next());
+  lista.sort(function(a, b){ return b.getDateCreated().getTime() - a.getDateCreated().getTime(); });
+  var apagados = 0;
+  for(var i = BACKUP_MANTER; i < lista.length; i++){ lista[i].setTrashed(true); apagados++; }
+  return {ok:true, nome:nome, totalNaPasta:Math.min(lista.length, BACKUP_MANTER), podados:apagados};
+}
+// Rode esta função UMA vez pelo editor para ligar o backup diário (cria o gatilho
+// e já faz o primeiro backup). Idempotente: remove gatilhos duplicados antes.
+// Sem "_" no fim de propósito: o editor só lista no menu Executar as funções que
+// NÃO terminam em underscore. As demais (fazerBackup_ etc.) seguem privadas — o
+// gatilho consegue chamá-las mesmo assim.
+function configurarBackupDiario(){
+  var trigs = ScriptApp.getProjectTriggers();
+  var removidos = 0;
+  for(var i=0;i<trigs.length;i++){
+    if(trigs[i].getHandlerFunction() === 'fazerBackup_'){ ScriptApp.deleteTrigger(trigs[i]); removidos++; }
+  }
+  ScriptApp.newTrigger('fazerBackup_').timeBased().everyDays(1).atHour(3).create();
+  var r = fazerBackup_();
+  r.gatilho = 'diário às 3h (' + removidos + ' antigo(s) substituído(s))';
+  return r;
+}
