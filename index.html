@@ -589,7 +589,11 @@
         <input type="file" id="sicrediPdfInput" accept="application/pdf,.pdf" style="display:none;" onchange="onSicrediPdfSelecionado(this)">
       </label>
       <button class="secondary" onclick="abrirColarExtrato()">Colar texto (plano B)</button>
+      <button class="secondary" onclick="limparRecebimentos()" title="Zera a lista de recebimentos carregados (não mexe nas reservas)">🗑️ Limpar</button>
       <span id="sicrediStatusMsg" class="status" style="font-size:12px;">Nenhum extrato carregado ainda.</span>
+    </div>
+    <div class="toolbar-row" style="margin-top:-4px;">
+      <span class="status" style="font-size:11px;color:#8a7d6f;">Cada extrato carregado <b>soma</b> aos recebimentos já lançados (sem duplicar) — dá para carregar vários meses.</span>
     </div>
     <div class="toolbar-row" id="colarExtratoRow" style="display:none;">
       <textarea id="colarExtratoArea" placeholder="Cole aqui o texto do extrato do Sicredi (linhas com RECEBIMENTO PIX ...)."></textarea>
@@ -1682,6 +1686,50 @@ function parseOfxSicredi(texto){
   });
   return {creditos:creditos, debitos:debitos, periodo:periodo};
 }
+// ---------- Acumular extratos (mesclar sem duplicar) ----------
+// Cada extrato carregado ACUMULA nos recebimentos já existentes, em vez de
+// substituir — assim dá para carregar vários meses/arquivos e ter a visão
+// completa. A chave de deduplicação é o FITID (id único do lançamento no banco)
+// quando existe (OFX); senão, cai para data+valor+pagador (PDF/texto).
+function dvpCredito_(c){ return c.data + '|' + c.valor + '|' + norm(c.pagador || ''); }
+function dataBrParaMs_(s){
+  const m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : 0;
+}
+// Regra de dedup: um lançamento com FITID (OFX) só duplica se o mesmo FITID já
+// existe — assim dois PIX de valor idêntico no mesmo dia (FITIDs diferentes)
+// contam os dois. Um lançamento sem FITID (PDF/texto) duplica por
+// data+valor+pagador contra tudo — inclusive contra um OFX já carregado.
+function mesclarCreditos_(existentes, novos){
+  const vfit = {}, vdvp = {}, out = [];
+  (existentes || []).concat(novos || []).forEach(function(c){
+    const dvp = dvpCredito_(c);
+    if(c.fitid){
+      if(vfit['f:' + c.fitid]) return;
+      vfit['f:' + c.fitid] = true; vdvp[dvp] = true; out.push(c);
+    } else {
+      if(vdvp[dvp]) return;
+      vdvp[dvp] = true; out.push(c);
+    }
+  });
+  out.sort(function(a, b){ return dataBrParaMs_(a.data) - dataBrParaMs_(b.data); });
+  return out;
+}
+function periodoDosCreditos_(creditos){
+  const ms = (creditos || []).map(function(c){ return dataBrParaMs_(c.data); }).filter(Boolean).sort();
+  if(!ms.length) return '';
+  const fmt = function(t){ const d = new Date(t); return ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear(); };
+  return fmt(ms[0]) + ' a ' + fmt(ms[ms.length - 1]);
+}
+function limparRecebimentos(){
+  if(!isAdmin){ alert('Somente o administrador pode alterar os recebimentos.'); return; }
+  if(!sicrediCreditos.length){ alert('Não há recebimentos carregados.'); return; }
+  if(!confirm('Limpar TODOS os ' + sicrediCreditos.length + ' recebimentos carregados?\n\nIsso NÃO afeta as reservas nem os pagamentos marcados à mão — só zera a lista de recebimentos do extrato, para você recomeçar.')) return;
+  sicrediCreditos = [];
+  sicrediMeta = {periodo:'', atualizadoEm:new Date().toLocaleString('pt-BR'), origem:'limpo'};
+  salvarExtratoNaConfig();
+  renderConciliacao();
+}
 function onSicrediOfxSelecionado(input){
   if(!isAdmin){ alert('Somente o administrador pode carregar o extrato.'); input.value=''; return; }
   const file = input.files && input.files[0];
@@ -1696,16 +1744,15 @@ function onSicrediOfxSelecionado(input){
         alert('Não encontrei recebimentos neste OFX. Confira se é o arquivo da conta Sicredi correto.');
         return;
       }
-      // Deduplica por FITID (id único do lançamento no banco).
-      const vistos = {};
-      sicrediCreditos = r.creditos.filter(function(c){
-        if(c.fitid && vistos[c.fitid]) return false;
-        if(c.fitid) vistos[c.fitid] = true;
-        return true;
-      });
-      sicrediMeta = {periodo:r.periodo, atualizadoEm:new Date().toLocaleString('pt-BR'), origem:'OFX ' + file.name};
+      const antes = sicrediCreditos.length;
+      sicrediCreditos = mesclarCreditos_(sicrediCreditos, r.creditos);
+      const novos = sicrediCreditos.length - antes;
+      sicrediMeta = {periodo:periodoDosCreditos_(sicrediCreditos), atualizadoEm:new Date().toLocaleString('pt-BR'), origem:'OFX ' + file.name};
       salvarExtratoNaConfig();
       renderConciliacao();
+      alert('OFX carregado: ' + novos + ' recebimento(s) novo(s)' +
+            (r.creditos.length - novos > 0 ? ' (' + (r.creditos.length - novos) + ' já constava(m))' : '') +
+            '.\nTotal acumulado: ' + sicrediCreditos.length + '.');
     } catch(err){
       document.getElementById('sicrediStatusMsg').textContent = '❌ ' + err.message;
       alert('Não consegui ler o OFX: ' + err.message);
@@ -1791,12 +1838,17 @@ function processarExtratoTexto(texto, origem){
     alert('Não encontrei recebimentos neste extrato. Confira se é o extrato da conta Sicredi correto.');
     return;
   }
-  sicrediCreditos = r.creditos;
-  sicrediMeta = {periodo:r.periodo, atualizadoEm:new Date().toLocaleString('pt-BR'), origem:origem};
+  const antes = sicrediCreditos.length;
+  sicrediCreditos = mesclarCreditos_(sicrediCreditos, r.creditos);
+  const novos = sicrediCreditos.length - antes;
+  sicrediMeta = {periodo:periodoDosCreditos_(sicrediCreditos), atualizadoEm:new Date().toLocaleString('pt-BR'), origem:origem};
   salvarExtratoNaConfig();
   document.getElementById('colarExtratoRow').style.display = 'none';
   document.getElementById('colarExtratoArea').value = '';
   renderConciliacao();
+  alert('Extrato lido: ' + novos + ' recebimento(s) novo(s)' +
+        (r.creditos.length - novos > 0 ? ' (' + (r.creditos.length - novos) + ' já constava(m))' : '') +
+        '.\nTotal acumulado: ' + sicrediCreditos.length + '.');
 }
 
 // ---------- Casamento reserva x crédito ----------
@@ -1872,7 +1924,7 @@ function renderConciliacao(){
   // Cabeçalho de status do extrato
   const msg = document.getElementById('sicrediStatusMsg');
   if(sicrediCreditos.length){
-    msg.textContent = '✅ ' + sicrediCreditos.length + ' recebimento(s)' + (sicrediMeta.periodo ? ' · período ' + sicrediMeta.periodo : '') + (sicrediMeta.atualizadoEm ? ' · carregado ' + sicrediMeta.atualizadoEm : '');
+    msg.textContent = '✅ ' + sicrediCreditos.length + ' recebimento(s) acumulado(s)' + (sicrediMeta.periodo ? ' · ' + sicrediMeta.periodo : '') + (sicrediMeta.atualizadoEm ? ' · último ' + sicrediMeta.atualizadoEm : '');
   } else {
     msg.textContent = 'Nenhum extrato carregado ainda. Toque em "Carregar extrato (OFX)" — dá dados mais completos que o PDF.';
   }
