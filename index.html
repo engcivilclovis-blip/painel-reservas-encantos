@@ -1030,9 +1030,12 @@ function carregarReservasDoPdf(){
     return extrairItensPdf(b64ParaUint8_(r.b64).buffer).then(function(itens){
       const regs = parseReservasPdfItens(itens);
       if(!regs.length) throw new Error('PDF lido, mas nenhuma reserva reconhecida');
-      const csv = reservasPdfParaCsv(regs);
       const quando = r.atualizadoEm ? ' em ' + r.atualizadoEm : '';
-      loadCSVText(csv, true, 'sincronizado do FazReservas (PDF)' + quando);
+      if(baseCsv && baseCsv.length > 30){         // já há base curada: só acrescenta/atualiza
+        const m = mesclarPdfNaBase_(regs, quando);
+        return m.novos + m.atualizados;
+      }
+      loadCSVText(reservasPdfParaCsv(regs), true, 'sincronizado do FazReservas (PDF)' + quando);
       return regs.length;
     });
   });
@@ -2374,6 +2377,7 @@ function concluirPedidoMaterial(id){
 }
 
 let reservations = [];
+let baseCsv = '';   // base curada de reservas (fonte definitiva; e-mail só acrescenta/atualiza)
 let weekStart = mondayOf(new Date());
 const LS_CSV_KEY = 'painelUltimoCSV';
 const LS_CSV_TIME_KEY = 'painelUltimoCSVHora';
@@ -2609,6 +2613,17 @@ function platformOf(ref){
 function platformClass(p){
   return p==='Booking.com' ? 'booking' : (p==='Airbnb' ? 'airbnb' : 'proprio');
 }
+// Identifica repasses de canal/OTA pelo nome do pagador no extrato (ex.: repasse
+// da Booking cai como "BOOKING.COM BRASIL..."). Vazio = não é canal.
+function canalDoPagador_(pag){
+  const p = norm(pag);
+  if(p.indexOf('booking') > -1) return 'Booking.com';
+  if(p.indexOf('airbnb') > -1) return 'Airbnb';
+  if(p.indexOf('expedia') > -1) return 'Expedia';
+  if(p.indexOf('decolar') > -1 || p.indexOf('despegar') > -1) return 'Decolar';
+  if(p.indexOf('hoteis') > -1 || p.indexOf('hotels') > -1) return 'Outro canal';
+  return '';
+}
 
 // ---------- Parser CSV ----------
 function parseCSV(text){
@@ -2664,10 +2679,9 @@ function buildIndex(headerRow){
   return idx;
 }
 
-function loadCSVText(text, persist, sourceLabel){
-  if(persist === undefined) persist = true;
+function csvParaReservas_(text){
   const rows = parseCSV(text);
-  if(rows.length<2){ alert('Não foi possível identificar linhas de dados no arquivo.'); return; }
+  if(rows.length<2) return null;
   const idx = buildIndex(rows[0]);
   const list = [];
   for(let i=1;i<rows.length;i++){
@@ -2695,18 +2709,75 @@ function loadCSVText(text, persist, sourceLabel){
       valor: parseNumber(get('valor'))
     });
   }
-  reservations = list;
-  if(persist){
-    localStorage.setItem(LS_CSV_KEY, text);
+  return list;
+}
+function aplicarReservas_(list, persistTexto, sourceLabel){
+  reservations = list || [];
+  if(persistTexto){
+    localStorage.setItem(LS_CSV_KEY, persistTexto);
     localStorage.setItem(LS_CSV_TIME_KEY, new Date().toISOString());
   }
   updateStatusMsg(sourceLabel);
-  if(list.length){
-    const firstDate = list.map(r=>r.checkin||r.checkout).filter(Boolean).sort((a,b)=>a-b)[0];
+  if(reservations.length){
+    const firstDate = reservations.map(r=>r.checkin||r.checkout).filter(Boolean).sort((a,b)=>a-b)[0];
     if(firstDate) weekStart = mondayOf(firstDate);
   }
   render();
   renderHoje();
+}
+function loadCSVText(text, persist, sourceLabel){
+  if(persist === undefined) persist = true;
+  const list = csvParaReservas_(text);
+  if(list === null){ alert('Não foi possível identificar linhas de dados no arquivo.'); return; }
+  aplicarReservas_(list, persist ? text : '', sourceLabel);
+}
+
+// ---------- Base curada + sincronização incremental de reservas ----------
+// A base (importada à mão) é a fonte definitiva. A busca no e-mail só ACRESCENTA
+// reservas novas e ATUALIZA status/valor/saldo das já existentes, preservando o
+// resto da curadoria. Chave = nome + check-in + check-out (o relatório não traz nº).
+function isoData_(d){ return d ? (d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)) : ''; }
+function chaveReserva_(r){ return norm(r.nome||'') + '|' + isoData_(r.checkin) + '|' + isoData_(r.checkout); }
+function csvEscapar_(v){ v = (v==null?'':String(v)); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+function reservasParaCsv_(list){
+  const H = ['numero','status','propriedade','acomodacao','unidade','checkin','checkout','noites','nome','email','telefone','adultos','criancas','referencia','saldo','valor'];
+  const linhas = [H.join(',')];
+  (list||[]).forEach(function(r){
+    linhas.push([r.numero||'', r.status||'', r.propriedade||'', r.acomodacao||'', r.unidade||'',
+      isoData_(r.checkin), isoData_(r.checkout), noitesReserva_(r), r.nome||'', r.email||'', r.telefone||'',
+      (r.adultos||''), (r.criancas||''), r.referencia||'',
+      (r.saldo!=null?r.saldo:''), (r.valor!=null?r.valor:'')].map(csvEscapar_).join(','));
+  });
+  return linhas.join('\n');
+}
+function mesclarReservas_(base, novas){
+  const porChave = {};
+  const lista = (base||[]).map(function(r){ porChave[chaveReserva_(r)] = r; return r; });
+  let novos = 0, atualizados = 0;
+  (novas||[]).forEach(function(n){
+    const c = chaveReserva_(n), ex = porChave[c];
+    if(!ex){ lista.push(n); porChave[c] = n; novos++; return; }
+    let mudou = false;
+    ['status','valor','saldo'].forEach(function(campo){
+      if(n[campo] != null && n[campo] !== '' && n[campo] !== ex[campo]){ ex[campo] = n[campo]; mudou = true; }
+    });
+    if(mudou) atualizados++;
+  });
+  lista.sort(function(a,b){ return (a.checkin||a.checkout||0) - (b.checkin||b.checkout||0); });
+  return {lista:lista, novos:novos, atualizados:atualizados};
+}
+// Mescla o PDF do e-mail na base curada e persiste. Retorna resumo.
+function mesclarPdfNaBase_(regs, quando){
+  const novas = csvParaReservas_(reservasPdfParaCsv(regs)) || [];
+  const base = baseCsv ? (csvParaReservas_(baseCsv) || []) : [];
+  const r = mesclarReservas_(base, novas);
+  baseCsv = reservasParaCsv_(r.lista);
+  if(apiAvailable()){
+    apiSalvarConfig('reservasManualCsv', baseCsv);
+    apiSalvarConfig('reservasManualEm', String(Date.now()));
+  }
+  aplicarReservas_(r.lista, baseCsv, 'base + e-mail' + (quando||'') + ' · ' + r.novos + ' nova(s), ' + r.atualizados + ' atualizada(s)');
+  return r;
 }
 function updateStatusMsg(sourceLabel){
   let msg = reservations.length + ' reservas carregadas.';
@@ -2746,11 +2817,16 @@ function initialLoad(){
     apiGetReservasPdf().catch(() => null)
   ]).then(function(res){
     const cfg = res[0] || {}, pdf = res[1];
-    const manualCsv = cfg.reservasManualCsv;
-    const manualEm = Number(cfg.reservasManualEm) || 0;
-    const pdfEm = pdf && pdf.atualizadoEm ? parseBrDateTimeMs_(pdf.atualizadoEm) : 0;
-    if(manualCsv && manualCsv.length > 30 && manualEm >= pdfEm){
-      loadCSVText(manualCsv, true, 'importado manualmente (sincronizado com todos)');
+    baseCsv = (cfg.reservasManualCsv && cfg.reservasManualCsv.length > 30) ? cfg.reservasManualCsv : '';
+    if(baseCsv){
+      // Base curada é a fonte definitiva: carrega já e só mescla novidades do PDF.
+      aplicarReservas_(csvParaReservas_(baseCsv) || [], baseCsv, 'base curada (sincronizada)');
+      if(pdf && pdf.b64){
+        return extrairItensPdf(b64ParaUint8_(pdf.b64).buffer).then(function(itens){
+          const regs = parseReservasPdfItens(itens);
+          if(regs.length) mesclarPdfNaBase_(regs, pdf.atualizadoEm ? ' de ' + pdf.atualizadoEm : '');
+        }).catch(function(){ /* sem PDF válido: mantém a base já carregada */ });
+      }
       return;
     }
     if(pdf && pdf.b64){
@@ -2791,7 +2867,11 @@ document.getElementById('fileInput').addEventListener('change', function(e){
   const file = e.target.files[0];
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = ev => { loadCSVText(ev.target.result); sincronizarImportacaoManual(ev.target.result); };
+  reader.onload = ev => {
+    loadCSVText(ev.target.result);
+    baseCsv = reservasParaCsv_(reservations);       // canonicaliza e vira a base curada
+    sincronizarImportacaoManual(baseCsv);
+  };
   reader.readAsText(file, 'UTF-8');
 });
 // Salva o CSV importado à mão na planilha (Config) para que TODOS os aparelhos
@@ -3181,6 +3261,43 @@ function renderFaturamento(){
   };
   html += tabela('Por canal de reserva', 'Canal', ordena(porCanal));
   html += tabela('Por acomodação (cabana)', 'Acomodação', ordena(porAcom));
+
+  // ---- Síntese dos valores REALMENTE recebidos (extrato OFX) no período ----
+  html += '<h3 style="margin:18px 0 6px;font-size:14px;color:var(--brand-charcoal);">💵 Valores recebidos no banco (OFX) no período</h3>';
+  const deMs = de ? de.getTime() : -Infinity, ateMs = ate ? ate.getTime() : Infinity;
+  const creds = (sicrediCreditos || []).filter(function(c){ const t = dataBrParaMs_(c.data); return t >= deMs && t <= ateMs; });
+  if(!creds.length){
+    html += '<p class="empty" style="font-size:12px;">Carregue os extratos <b>OFX</b> (acima, na conciliação) para ver os valores efetivamente recebidos, separados por origem.</p>';
+  } else {
+    const porCanalRec = {}; let diretoV=0, diretoN=0, semV=0, semN=0, totalRec=0;
+    creds.forEach(function(c){
+      totalRec += c.valor;
+      const canal = canalDoPagador_(c.pagador);
+      if(canal){ const x = porCanalRec[canal] || {valor:0, n:0}; x.valor += c.valor; x.n++; porCanalRec[canal] = x; }
+      else if(reservations.some(function(r){ return !/cancel/i.test(r.status||'') && nomesCombinam(r.nome, c.pagador); })){ diretoV += c.valor; diretoN++; }
+      else { semV += c.valor; semN++; }
+    });
+    const canalV = Object.keys(porCanalRec).reduce(function(s,k){ return s + porCanalRec[k].valor; }, 0);
+    html += '<div class="summary-bar">' +
+      '<span>Total recebido: <b>' + fmtMoney(totalRec) + '</b></span>' +
+      '<span>Via canais: <b>' + fmtMoney(canalV) + '</b></span>' +
+      '<span>Direto de hóspede: <b>' + fmtMoney(diretoV) + '</b></span>' +
+      '<span>Cliente sem reserva: <b>' + fmtMoney(semV) + '</b></span></div>';
+    const rec = [];
+    Object.keys(porCanalRec).forEach(function(k){ rec.push({nome:'Canal: ' + k, n:porCanalRec[k].n, valor:porCanalRec[k].valor}); });
+    rec.push({nome:'Entrada direta (hóspede com reserva)', n:diretoN, valor:diretoV});
+    rec.push({nome:'Cliente sem reserva (avulso)', n:semN, valor:semV});
+    rec.sort(function(a,b){ return b.valor - a.valor; });
+    let t = '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr><th>Origem do recebimento</th><th>Recebimentos</th><th>Valor</th><th>%</th></tr></thead><tbody>';
+    rec.forEach(function(x){
+      if(!x.n && !x.valor) return;
+      const pct = totalRec ? Math.round(x.valor/totalRec*100) : 0;
+      t += '<tr><td>' + x.nome + '</td><td>' + x.n + '</td><td>' + fmtMoney(x.valor) + '</td><td>' + pct + '%</td></tr>';
+    });
+    t += '</tbody></table></div>';
+    html += t;
+    html += '<p class="empty" style="font-size:11px;margin-top:4px;">Recebido = dinheiro que entrou na conta (por data do crédito). Difere do faturamento acima, que é o valor das reservas por check-in.</p>';
+  }
   box.innerHTML = html;
 }
 function abrirVendas(){
