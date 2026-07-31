@@ -581,8 +581,8 @@
     </div>
     <div class="toolbar-row">
       <label class="secondary" style="background:var(--brand-terra);color:#fff;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">
-        ⭐ Carregar extrato (OFX)
-        <input type="file" id="sicrediOfxInput" accept=".ofx,application/x-ofx,text/plain" style="display:none;" onchange="onSicrediOfxSelecionado(this)">
+        ⭐ Carregar extratos (OFX)
+        <input type="file" id="sicrediOfxInput" accept=".ofx,application/x-ofx,text/plain" multiple style="display:none;" onchange="onSicrediOfxSelecionado(this)">
       </label>
       <label class="secondary" style="background:var(--brand-gold);color:#3a2417;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;">
         📄 Extrato (PDF)
@@ -593,7 +593,7 @@
       <span id="sicrediStatusMsg" class="status" style="font-size:12px;">Nenhum extrato carregado ainda.</span>
     </div>
     <div class="toolbar-row" style="margin-top:-4px;">
-      <span class="status" style="font-size:11px;color:#8a7d6f;">Cada extrato carregado <b>soma</b> aos recebimentos já lançados (sem duplicar) — dá para carregar vários meses.</span>
+      <span class="status" style="font-size:11px;color:#8a7d6f;">Pode selecionar <b>vários OFX de uma vez</b> (Ctrl+A na pasta). Cada extrato <b>soma</b> aos já lançados, sem duplicar — e o acumulado fica salvo, então depois basta carregar só o mês novo.</span>
     </div>
     <div class="toolbar-row" id="colarExtratoRow" style="display:none;">
       <textarea id="colarExtratoArea" placeholder="Cole aqui o texto do extrato do Sicredi (linhas com RECEBIMENTO PIX ...)."></textarea>
@@ -1730,36 +1730,47 @@ function limparRecebimentos(){
   salvarExtratoNaConfig();
   renderConciliacao();
 }
+function lerArquivoTexto_(file){
+  return new Promise(function(resolve, reject){
+    const reader = new FileReader();
+    reader.onload = function(){ resolve(String(reader.result || '')); };
+    reader.onerror = function(){ reject(new Error('não consegui ler ' + file.name)); };
+    reader.readAsText(file, 'ISO-8859-1');   // OFX do Sicredi costuma vir em latin-1
+  });
+}
+// Aceita 1 ou VÁRIOS arquivos OFX de uma vez (selecione todos na pasta com Ctrl+A).
+// Cada um é mesclado no acumulado, sem duplicar.
 function onSicrediOfxSelecionado(input){
   if(!isAdmin){ alert('Somente o administrador pode carregar o extrato.'); input.value=''; return; }
-  const file = input.files && input.files[0];
-  if(!file) return;
-  document.getElementById('sicrediStatusMsg').textContent = '⏳ Lendo o OFX...';
-  const reader = new FileReader();
-  reader.onload = function(){
-    try {
-      const r = parseOfxSicredi(String(reader.result || ''));
-      if(!r.creditos.length){
-        document.getElementById('sicrediStatusMsg').textContent = '⚠️ Nenhum recebimento (entrada) encontrado no OFX.';
-        alert('Não encontrei recebimentos neste OFX. Confira se é o arquivo da conta Sicredi correto.');
-        return;
-      }
-      const antes = sicrediCreditos.length;
+  const files = input.files ? Array.prototype.slice.call(input.files) : [];
+  if(!files.length) return;
+  document.getElementById('sicrediStatusMsg').textContent = '⏳ Lendo ' + files.length + ' arquivo(s) OFX...';
+  Promise.all(files.map(lerArquivoTexto_)).then(function(textos){
+    const antes = sicrediCreditos.length;
+    let lidosNoLote = 0, arquivosVazios = [];
+    textos.forEach(function(txt, i){
+      const r = parseOfxSicredi(txt);
+      if(!r.creditos.length){ arquivosVazios.push(files[i].name); return; }
+      lidosNoLote += r.creditos.length;
       sicrediCreditos = mesclarCreditos_(sicrediCreditos, r.creditos);
-      const novos = sicrediCreditos.length - antes;
-      sicrediMeta = {periodo:periodoDosCreditos_(sicrediCreditos), atualizadoEm:new Date().toLocaleString('pt-BR'), origem:'OFX ' + file.name};
-      salvarExtratoNaConfig();
-      renderConciliacao();
-      alert('OFX carregado: ' + novos + ' recebimento(s) novo(s)' +
-            (r.creditos.length - novos > 0 ? ' (' + (r.creditos.length - novos) + ' já constava(m))' : '') +
-            '.\nTotal acumulado: ' + sicrediCreditos.length + '.');
-    } catch(err){
-      document.getElementById('sicrediStatusMsg').textContent = '❌ ' + err.message;
-      alert('Não consegui ler o OFX: ' + err.message);
+    });
+    if(sicrediCreditos.length === antes && !lidosNoLote){
+      document.getElementById('sicrediStatusMsg').textContent = '⚠️ Nenhum recebimento encontrado nos arquivos.';
+      alert('Não encontrei recebimentos nesses arquivos. Confira se são OFX da conta Sicredi.');
+      return;
     }
-  };
-  reader.onerror = function(){ document.getElementById('sicrediStatusMsg').textContent = '❌ Não consegui ler o arquivo.'; };
-  reader.readAsText(file, 'ISO-8859-1');   // OFX do Sicredi costuma vir em latin-1
+    const novos = sicrediCreditos.length - antes;
+    sicrediMeta = {periodo:periodoDosCreditos_(sicrediCreditos), atualizadoEm:new Date().toLocaleString('pt-BR'), origem:files.length + ' arquivo(s) OFX'};
+    salvarExtratoNaConfig();
+    renderConciliacao();
+    alert(files.length + ' arquivo(s) OFX lido(s): ' + novos + ' recebimento(s) novo(s)' +
+          (lidosNoLote - novos > 0 ? ' (' + (lidosNoLote - novos) + ' já constava(m)/repetido(s))' : '') +
+          '.\nTotal acumulado: ' + sicrediCreditos.length + '.' +
+          (arquivosVazios.length ? '\n\nSem recebimentos em: ' + arquivosVazios.join(', ') : ''));
+  }).catch(function(err){
+    document.getElementById('sicrediStatusMsg').textContent = '❌ ' + err.message;
+    alert('Não consegui ler um dos arquivos: ' + err.message);
+  });
   input.value = '';
 }
 
