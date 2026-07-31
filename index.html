@@ -264,6 +264,11 @@
       <button class="secondary" onclick="fatPeriodoRapido('ano')">Este ano</button>
       <button class="secondary" onclick="fatPeriodoRapido('tudo')">Tudo</button>
     </div>
+    <div class="toolbar-row" style="margin-bottom:6px;gap:10px;flex-wrap:wrap;align-items:center;font-size:12px;">
+      <span style="color:#8a7d6f;">Taxas p/ conferência:</span>
+      <label class="chk" style="gap:4px;">Booking <input type="number" id="taxaBookingInput" min="0" max="100" step="0.1" style="width:60px;" onchange="salvarTaxasCanais()">%</label>
+      <label class="chk" style="gap:4px;">Airbnb <input type="number" id="taxaAirbnbInput" min="0" max="100" step="0.1" style="width:60px;" onchange="salvarTaxasCanais()">%</label>
+    </div>
     <p class="empty" style="margin:0 0 8px;font-size:11px;color:#8a7d6f;">Conta a reserva no período pela data de <b>check-in</b>. Ignora canceladas. Valores conforme o relatório do FazReservas.</p>
     <div id="faturamentoBody"><p class="empty">Selecione o período.</p></div>
   </div>
@@ -1108,6 +1113,8 @@ function refreshFrigobarCache(){
         if(config.waAdminKey !== undefined) waAdminKey = config.waAdminKey || '';
         if(config.frigobarCustos){ try { frigobarCustos = JSON.parse(config.frigobarCustos) || {}; } catch(e){} }
         if(config.checkinsFeitos){ try { checkinsFeitos = JSON.parse(config.checkinsFeitos) || {}; } catch(e){} }
+        if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
+        if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
         protecaoAtiva = !!config.apiSecretSet;
         carregarConciliacaoDaConfig(config);
       }
@@ -2378,6 +2385,7 @@ function concluirPedidoMaterial(id){
 
 let reservations = [];
 let baseCsv = '';   // base curada de reservas (fonte definitiva; e-mail só acrescenta/atualiza)
+let taxaBookingPct = 15, taxaAirbnbPct = 3;   // taxas padrão das plataformas (editáveis)
 let weekStart = mondayOf(new Date());
 const LS_CSV_KEY = 'painelUltimoCSV';
 const LS_CSV_TIME_KEY = 'painelUltimoCSVHora';
@@ -3205,8 +3213,21 @@ function abrirFaturamento(){
     de.value = ymd_(new Date(h.getFullYear(),0,1));
     ate.value = ymd_(h);
   }
+  document.getElementById('taxaBookingInput').value = taxaBookingPct;
+  document.getElementById('taxaAirbnbInput').value = taxaAirbnbPct;
   renderFaturamento();
 }
+function salvarTaxasCanais(){
+  taxaBookingPct = Math.max(0, Math.min(100, Number(document.getElementById('taxaBookingInput').value) || 0));
+  taxaAirbnbPct  = Math.max(0, Math.min(100, Number(document.getElementById('taxaAirbnbInput').value) || 0));
+  if(isAdmin && apiAvailable()){
+    apiSalvarConfig('taxaBooking', String(taxaBookingPct));
+    apiSalvarConfig('taxaAirbnb', String(taxaAirbnbPct));
+  }
+  renderFaturamento();
+}
+function mesAnoMs_(ms){ const d = new Date(ms); return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2); }
+function mesRotulo_(ym){ const p = ym.split('-'); const nm = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']; return nm[(+p[1])-1] + '/' + p[0].slice(2); }
 function closeFaturamentoModal(){ document.getElementById('faturamentoModal').style.display = 'none'; }
 function fatPeriodoRapido(tipo){
   const h = new Date(), de = document.getElementById('fatDe'), ate = document.getElementById('fatAte');
@@ -3298,7 +3319,49 @@ function renderFaturamento(){
     html += t;
     html += '<p class="empty" style="font-size:11px;margin-top:4px;">Recebido = dinheiro que entrou na conta (por data do crédito). Difere do faturamento acima, que é o valor das reservas por check-in.</p>';
   }
+
+  // ---- Conferência por mês: canais (Booking/Airbnb) × repasses recebidos ----
+  html += '<h3 style="margin:18px 0 6px;font-size:14px;color:var(--brand-charcoal);">🔁 Conferência de canais por mês (reservas × recebido, com taxa)</h3>';
+  html += secaoConferenciaCanal_('Booking.com', 'Booking.com', taxaBookingPct, de, ate);
+  html += secaoConferenciaCanal_('Airbnb', 'Airbnb', taxaAirbnbPct, de, ate);
+  html += '<p class="empty" style="font-size:11px;margin-top:4px;">Bruto = valor das reservas do canal (por check-in). Líq. esperado = bruto − taxa. Recebido = repasses do canal no extrato. A diferença pode variar por <b>quando</b> a plataforma repassa (o mês do repasse nem sempre é o do check-in); no total do período tende a fechar. Taxa efetiva = 1 − recebido/bruto.</p>';
+
   box.innerHTML = html;
+}
+function secaoConferenciaCanal_(titulo, platName, taxaPct, de, ate){
+  const deMs = de ? de.getTime() : -Infinity, ateMs = ate ? ate.getTime() : Infinity;
+  const bruto = {}, receb = {};
+  reservations.forEach(function(r){
+    if(/cancel/i.test(r.status||'')) return;
+    if(r.platform !== platName) return;
+    const d = r.checkin || r.checkout; if(!d) return;
+    const t = d.getTime(); if(t < deMs || t > ateMs) return;
+    const ym = mesAnoMs_(t); const b = bruto[ym] || {v:0, n:0}; b.v += Number(r.valor)||0; b.n++; bruto[ym] = b;
+  });
+  (sicrediCreditos||[]).forEach(function(c){
+    if(canalDoPagador_(c.pagador) !== platName) return;
+    const t = dataBrParaMs_(c.data); if(!t || t < deMs || t > ateMs) return;
+    const ym = mesAnoMs_(t); const x = receb[ym] || {v:0, n:0}; x.v += c.valor; x.n++; receb[ym] = x;
+  });
+  const meses = Array.from(new Set(Object.keys(bruto).concat(Object.keys(receb)))).sort();
+  if(!meses.length) return '<p class="empty" style="font-size:12px;">' + titulo + ': sem reservas nem repasses no período.</p>';
+  let tBruto=0, tReceb=0, tLiq=0;
+  let linhas = '';
+  meses.forEach(function(ym){
+    const g = bruto[ym] || {v:0,n:0}, rcv = receb[ym] || {v:0,n:0};
+    const liq = g.v * (1 - taxaPct/100), dif = rcv.v - liq;
+    const taxaEf = g.v ? Math.round((1 - rcv.v/g.v)*1000)/10 : null;
+    tBruto += g.v; tReceb += rcv.v; tLiq += liq;
+    const cor = Math.abs(dif) < 1 ? 'inherit' : (dif < 0 ? '#b00020' : '#1b7a3d');
+    linhas += '<tr><td>' + mesRotulo_(ym) + '</td><td>' + g.n + '</td><td>' + fmtMoney(g.v) + '</td><td>' + fmtMoney(liq) + '</td><td>' + fmtMoney(rcv.v) + '</td><td style="color:' + cor + ';">' + fmtMoney(dif) + '</td><td>' + (taxaEf==null?'—':taxaEf+'%') + '</td></tr>';
+  });
+  const difTot = tReceb - tLiq, taxaEfTot = tBruto ? Math.round((1 - tReceb/tBruto)*1000)/10 : null;
+  const corTot = Math.abs(difTot) < 1 ? 'inherit' : (difTot < 0 ? '#b00020' : '#1b7a3d');
+  let t = '<h4 style="margin:10px 0 4px;font-size:13px;">' + titulo + ' — taxa esperada ' + taxaPct + '%' + (taxaEfTot!=null ? ' · efetiva no período <b>' + taxaEfTot + '%</b>' : '') + '</h4>';
+  t += '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr><th>Mês</th><th>Reservas</th><th>Bruto</th><th>Líq. esperado</th><th>Recebido</th><th>Dif.</th><th>Taxa efet.</th></tr></thead><tbody>' + linhas +
+    '<tr style="font-weight:700;border-top:2px solid var(--border);"><td>Total</td><td></td><td>' + fmtMoney(tBruto) + '</td><td>' + fmtMoney(tLiq) + '</td><td>' + fmtMoney(tReceb) + '</td><td style="color:' + corTot + ';">' + fmtMoney(difTot) + '</td><td>' + (taxaEfTot==null?'—':taxaEfTot+'%') + '</td></tr>' +
+    '</tbody></table></div>';
+  return t;
 }
 function abrirVendas(){
   if(!isAdmin){ alert('Somente o administrador vê as vendas.'); return; }
