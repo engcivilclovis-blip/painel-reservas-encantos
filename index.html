@@ -251,6 +251,24 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="faturamentoModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>📈 Faturamento por período</h2>
+      <button class="secondary" onclick="closeFaturamentoModal()">Fechar</button>
+    </div>
+    <div class="toolbar-row" style="margin-bottom:6px;gap:10px;flex-wrap:wrap;align-items:center;">
+      <label class="chk" style="gap:6px;">De <input type="date" id="fatDe" onchange="renderFaturamento()"></label>
+      <label class="chk" style="gap:6px;">Até <input type="date" id="fatAte" onchange="renderFaturamento()"></label>
+      <button class="secondary" onclick="fatPeriodoRapido('mes')">Este mês</button>
+      <button class="secondary" onclick="fatPeriodoRapido('ano')">Este ano</button>
+      <button class="secondary" onclick="fatPeriodoRapido('tudo')">Tudo</button>
+    </div>
+    <p class="empty" style="margin:0 0 8px;font-size:11px;color:#8a7d6f;">Conta a reserva no período pela data de <b>check-in</b>. Ignora canceladas. Valores conforme o relatório do FazReservas.</p>
+    <div id="faturamentoBody"><p class="empty">Selecione o período.</p></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="consumoModal" style="display:none;">
   <div class="modal">
     <div class="modal-head">
@@ -576,8 +594,9 @@
 
 <div class="module-view" id="module-financeiro">
   <div class="toolbar">
-    <div class="toolbar-row">
+    <div class="toolbar-row" style="justify-content:space-between;align-items:center;">
       <strong>Conciliação bancária — extrato Sicredi</strong>
+      <button onclick="abrirFaturamento()" style="background:var(--brand-terra);color:#fff;">📈 Faturamento por período</button>
     </div>
     <div class="toolbar-row">
       <label class="secondary" style="background:var(--brand-terra);color:#fff;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">
@@ -3091,6 +3110,79 @@ function renderHoje(){
    custo (que mora na Config), para mostrar receita, custo, lucro e margem, além
    do que saiu como cortesia/perda/quebra. */
 let vendasMovimentos = null;
+// ---------- Relatório de faturamento por período (admin) ----------
+function ymd_(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function noitesReserva_(r){
+  if(r.checkin && r.checkout){ const d = Math.round((r.checkout - r.checkin)/86400000); return d>0?d:0; }
+  return Number(r.noites)||0;
+}
+function abrirFaturamento(){
+  if(!isAdmin){ alert('Somente o administrador vê o faturamento.'); return; }
+  document.getElementById('faturamentoModal').style.display = 'flex';
+  const de = document.getElementById('fatDe'), ate = document.getElementById('fatAte');
+  if(!de.value && !ate.value){                     // default: ano corrente
+    const h = new Date();
+    de.value = ymd_(new Date(h.getFullYear(),0,1));
+    ate.value = ymd_(h);
+  }
+  renderFaturamento();
+}
+function closeFaturamentoModal(){ document.getElementById('faturamentoModal').style.display = 'none'; }
+function fatPeriodoRapido(tipo){
+  const h = new Date(), de = document.getElementById('fatDe'), ate = document.getElementById('fatAte');
+  if(tipo === 'mes'){ de.value = ymd_(new Date(h.getFullYear(),h.getMonth(),1)); ate.value = ymd_(h); }
+  else if(tipo === 'ano'){ de.value = ymd_(new Date(h.getFullYear(),0,1)); ate.value = ymd_(h); }
+  else { de.value = ''; ate.value = ''; }           // tudo
+  renderFaturamento();
+}
+function renderFaturamento(){
+  const box = document.getElementById('faturamentoBody');
+  const deStr = document.getElementById('fatDe').value, ateStr = document.getElementById('fatAte').value;
+  const de = deStr ? new Date(deStr + 'T00:00:00') : null;
+  const ate = ateStr ? new Date(ateStr + 'T23:59:59') : null;
+  const lista = reservations.filter(function(r){
+    if(/cancel/i.test(r.status||'')) return false;
+    const d = r.checkin || r.checkout; if(!d) return false;
+    if(de && d < de) return false;
+    if(ate && d > ate) return false;
+    return true;
+  });
+  if(!lista.length){ box.innerHTML = '<p class="empty">Nenhuma reserva no período selecionado.</p>'; return; }
+  let totalValor = 0, totalNoites = 0;
+  const porCanal = {}, porAcom = {};
+  lista.forEach(function(r){
+    const v = Number(r.valor)||0, n = noitesReserva_(r);
+    totalValor += v; totalNoites += n;
+    const canal = r.platform || 'Próprio';
+    const pc = porCanal[canal] || {reservas:0, noites:0, valor:0};
+    pc.reservas++; pc.noites += n; pc.valor += v; porCanal[canal] = pc;
+    const acom = (r.acomodacao || r.unidade || '(sem acomodação)').toString().trim() || '(sem acomodação)';
+    const pa = porAcom[acom] || {reservas:0, noites:0, valor:0};
+    pa.reservas++; pa.noites += n; pa.valor += v; porAcom[acom] = pa;
+  });
+  const ticket = lista.length ? totalValor/lista.length : 0;
+  const diaria = totalNoites ? totalValor/totalNoites : 0;
+  let html = '<div class="summary-bar">' +
+    '<span>Faturamento: <b>' + fmtMoney(totalValor) + '</b></span>' +
+    '<span>Reservas: <b>' + lista.length + '</b></span>' +
+    '<span>Noites: <b>' + totalNoites + '</b></span>' +
+    '<span>Ticket médio: <b>' + fmtMoney(ticket) + '</b></span>' +
+    '<span>Diária média: <b>' + fmtMoney(diaria) + '</b></span></div>';
+  const ordena = function(obj){ return Object.keys(obj).map(function(k){ return Object.assign({nome:k}, obj[k]); }).sort(function(a,b){ return b.valor - a.valor; }); };
+  const tabela = function(titulo, rotulo, arr){
+    let t = '<h3 style="margin:14px 0 6px;font-size:14px;color:var(--brand-charcoal);">' + titulo + '</h3>';
+    t += '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr><th>' + rotulo + '</th><th>Reservas</th><th>Noites</th><th>Faturamento</th><th>%</th></tr></thead><tbody>';
+    arr.forEach(function(x){
+      const pct = totalValor ? Math.round(x.valor/totalValor*100) : 0;
+      t += '<tr><td>' + x.nome + '</td><td>' + x.reservas + '</td><td>' + x.noites + '</td><td>' + fmtMoney(x.valor) + '</td><td>' + pct + '%</td></tr>';
+    });
+    t += '</tbody></table></div>';
+    return t;
+  };
+  html += tabela('Por canal de reserva', 'Canal', ordena(porCanal));
+  html += tabela('Por acomodação (cabana)', 'Acomodação', ordena(porAcom));
+  box.innerHTML = html;
+}
 function abrirVendas(){
   if(!isAdmin){ alert('Somente o administrador vê as vendas.'); return; }
   document.getElementById('vendasModal').style.display = 'flex';
