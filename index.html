@@ -1072,6 +1072,9 @@ let currentDetailFbItems = [];
 // Ajustes de preço/desconto por item da fatura (chave = id do movimento).
 // { [movId]: {precoNovo, precoOrig, motivo, em} } — persistido na Config e sincronizado.
 let faturaAjustes = {};
+let recibosNum = {};      // {resKey: nº do recibo} — estável entre reimpressões
+let reciboSeq = 0;        // último nº de recibo emitido
+let faturaFormaPgto = {}; // {resKey: 'PIX'|'Dinheiro'|'Cartão'}
 function precoItemFatura_(it){
   const a = faturaAjustes[it.id];
   return a && a.precoNovo != null ? Number(a.precoNovo) : Number(it.valor)||0;
@@ -1080,6 +1083,13 @@ function salvarFaturaAjustes_(){
   const payload = JSON.stringify(faturaAjustes);
   if(apiAvailable()) apiSalvarConfig('faturaAjustes', payload).catch(()=>{});
   try { localStorage.setItem('painelFaturaAjustes', payload); } catch(e){}
+}
+function salvarFormaPgto(){
+  const el = document.getElementById('fbFormaPgto'); if(!el || !currentDetailKey) return;
+  faturaFormaPgto[currentDetailKey] = el.value;
+  const payload = JSON.stringify(faturaFormaPgto);
+  if(apiAvailable()) apiSalvarConfig('faturaFormaPgto', payload).catch(()=>{});
+  try { localStorage.setItem('painelFaturaFormaPgto', payload); } catch(e){}
 }
 // Registra uma linha no histórico (observações) da reserva atual — o admin vê ali.
 function logHistoricoReserva_(texto){
@@ -1104,10 +1114,21 @@ function ajustarPrecoItem(id){
   const novo = parseNumber(resp);
   if(!(novo >= 0)){ alert('Valor inválido.'); return; }
   const motivo = (prompt('Motivo da alteração (aparece no rodapé do recibo e no histórico):', faturaAjustes[id] ? (faturaAjustes[id].motivo||'') : '') || '').trim();
-  faturaAjustes[id] = {precoNovo:novo, precoOrig:orig, motivo:motivo, em:new Date().toLocaleString('pt-BR')};
+  faturaAjustes[id] = {precoNovo:novo, precoOrig:orig, qtd:(Number(it.qtd)||0), resKey:currentDetailKey, motivo:motivo, em:new Date().toLocaleString('pt-BR')};
   salvarFaturaAjustes_();
   logHistoricoReserva_('Frigobar: preço de "' + it.desc + '" alterado de ' + fmtMoney(orig) + ' para ' + fmtMoney(novo) + (motivo ? ' — ' + motivo : ''));
   renderFrigobarTable();
+  refreshFrigobarCache();
+}
+function restaurarPrecoItem(id){
+  if(!isOperador()){ alert('O colaborador de manutenção não altera a fatura.'); return; }
+  const a = faturaAjustes[id]; if(!a) return;
+  const it = currentDetailFbItems.find(x => String(x.id) === String(id));
+  delete faturaAjustes[id];
+  salvarFaturaAjustes_();
+  logHistoricoReserva_('Frigobar: preço de "' + (it ? it.desc : 'item') + '" restaurado para ' + fmtMoney(a.precoOrig));
+  renderFrigobarTable();
+  refreshFrigobarCache();
 }
 let obsSaveTimer = null;
 let obsSavePending = null;
@@ -1154,6 +1175,9 @@ function refreshFrigobarCache(){
         if(config.frigobarCustos){ try { frigobarCustos = JSON.parse(config.frigobarCustos) || {}; } catch(e){} }
         if(config.checkinsFeitos){ try { checkinsFeitos = JSON.parse(config.checkinsFeitos) || {}; } catch(e){} }
         if(config.faturaAjustes){ try { faturaAjustes = JSON.parse(config.faturaAjustes) || {}; } catch(e){} }
+        if(config.recibosNum){ try { recibosNum = JSON.parse(config.recibosNum) || {}; } catch(e){} }
+        if(config.reciboSeq !== undefined && config.reciboSeq !== '') reciboSeq = Number(config.reciboSeq) || 0;
+        if(config.faturaFormaPgto){ try { faturaFormaPgto = JSON.parse(config.faturaFormaPgto) || {}; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
         protecaoAtiva = !!config.apiSecretSet;
@@ -3608,10 +3632,21 @@ function closeCobrancaModal(){ document.getElementById('cobrancaModal').style.di
 // conciliação com o extrato do Sicredi. Somente o administrador vê.
 // Consumo de frigobar lançado nesta reserva (o FazReservas não sabe disso,
 // então soma-se ao que o hóspede deve). Vem de frigobarTotalsCache.
+// Soma dos descontos/alterações de preço lançados nesta reserva (delta = novo−orig
+// × qtd; negativo = desconto). Assim a cobrança da tela Hoje bate com o recibo.
+function ajusteFrigobarReserva_(chave){
+  let d = 0;
+  for(const id in faturaAjustes){
+    const a = faturaAjustes[id];
+    if(a && a.resKey === chave) d += (Number(a.precoNovo) - Number(a.precoOrig)) * (Number(a.qtd) || 0);
+  }
+  return d;
+}
 function frigobarDaReserva(res){
   if(!res) return 0;
   const chave = resKey(res);
-  return Number((frigobarTotalsCache && frigobarTotalsCache[chave]) || 0);
+  const base = Number((frigobarTotalsCache && frigobarTotalsCache[chave]) || 0);
+  return Math.max(0, base + ajusteFrigobarReserva_(chave));
 }
 function financeiroReservaHtml(res){
   if(!res || !podeVerPagamento()) return '';
@@ -3715,11 +3750,16 @@ function renderDetailsBody(){
     <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...) ${syncNote}</label>
     <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${obsValue}</textarea>
     <hr>
-    <label>Consumo de frigobar ${syncNote} <button class="mini secondary" onclick="imprimirFaturaFrigobar()">🖨️ Imprimir fatura</button></label>
+    <label>Consumo de frigobar ${syncNote}
+      <select id="fbFormaPgto" class="mini" onchange="salvarFormaPgto()" title="Forma de pagamento (aparece no recibo)">
+        <option value="PIX">PIX</option><option value="Dinheiro">Dinheiro</option><option value="Cartão">Cartão</option>
+      </select>
+      <button class="mini secondary" onclick="imprimirFaturaFrigobar()">🖨️ Imprimir fatura</button></label>
     ${frigobarForm}
     <div id="fbTableWrap"><p class="empty">Carregando…</p></div>
     ${faxinaSection}
   `;
+  const fpEl = document.getElementById('fbFormaPgto'); if(fpEl) fpEl.value = faturaFormaPgto[currentDetailKey] || 'PIX';
   document.getElementById('obsText').addEventListener('input', function(){
     const val = this.value;
     if(apiAvailable()){
@@ -3762,6 +3802,7 @@ function renderFrigobarTable(){
     const unitCell = aj ? ('<span style="text-decoration:line-through;color:#aaa;">' + fmtMoney(aj.precoOrig) + '</span> <b>' + fmtMoney(preco) + '</b>') : fmtMoney(preco);
     const acoes = isOperador()
       ? '<button class="mini secondary" onclick="ajustarPrecoItem(\'' + it.id + '\')">✏️ preço</button> ' +
+        (aj ? '<button class="mini secondary" onclick="restaurarPrecoItem(\'' + it.id + '\')">↩️ restaurar</button> ' : '') +
         '<button class="mini secondary" onclick="removeFrigobarItem(\'' + it.id + '\')">remover</button>'
       : '';
     return '<tr><td>' + it.desc + '</td><td>' + it.qtd + '</td><td>' + unitCell + '</td><td>' + fmtMoney(it.qtd*preco) + '</td><td>' + acoes + '</td></tr>';
@@ -4011,9 +4052,21 @@ function imprimirFaturaFrigobar(){
   const rodape = hideFinance()
     ? '<strong>Total a cobrar (frigobar): ' + fmtMoney(totalFrigobar) + '</strong>'
     : 'Frigobar: ' + fmtMoney(totalFrigobar) + '<br>Saldo da reserva: ' + fmtMoney(saldo) + '<br><strong>Total a pagar: ' + fmtMoney(totalGeral) + '</strong>';
+  const forma = faturaFormaPgto[currentDetailKey] || 'PIX';
+  // Número do recibo: estável por reserva (reimpressão mantém o mesmo).
+  let num = recibosNum[currentDetailKey];
+  if(!num){
+    reciboSeq = (Number(reciboSeq)||0) + 1; num = reciboSeq; recibosNum[currentDetailKey] = num;
+    const p1 = JSON.stringify(recibosNum), p2 = String(reciboSeq);
+    if(apiAvailable()){ apiSalvarConfig('recibosNum', p1).catch(()=>{}); apiSalvarConfig('reciboSeq', p2).catch(()=>{}); }
+    try { localStorage.setItem('painelRecibosNum', p1); localStorage.setItem('painelReciboSeq', p2); } catch(e){}
+  }
+  const numFmt = String(num).padStart(4, '0');
+  const emitido = new Date().toLocaleString('pt-BR');
+  const mostraPix = pixKey && forma === 'PIX';
   const pixValor = hideFinance() ? totalFrigobar : totalGeral;
-  const payload = pixPayload(pixValor);
-  const pixHtml = pixKey ? (
+  const payload = mostraPix ? pixPayload(pixValor) : '';
+  const pixHtml = mostraPix ? (
     '<div style="text-align:center;margin-top:18px;padding-top:14px;border-top:1px dashed #ccc;">' +
     '<div style="font-weight:600;margin-bottom:8px;">💳 Pague via PIX (aponte a câmera)</div>' +
     '<div id="qrFatura" style="display:inline-block;"></div>' +
@@ -4022,12 +4075,13 @@ function imprimirFaturaFrigobar(){
     '<div style="font-size:10px;color:#888;margin-top:6px;">PIX copia e cola:</div>' +
     '<div style="font-size:9px;color:#999;word-break:break-all;">' + payload + '</div>' +
     '</div>'
-  ) : (isAdmin ? '<div style="text-align:center;margin-top:14px;font-size:11px;color:#c25b00;">Configure a chave PIX em "💳 Dados PIX" para gerar o QR Code.</div>' : '');
+  ) : '';
   const html = printHeaderHtml('Fatura de Consumo — Fechamento') +
+    '<p style="margin:0 0 2px;"><strong>Recibo nº ' + numFmt + '</strong> · emitido em ' + emitido + '</p>' +
     '<p><strong>Hóspede/reserva:</strong> ' + label + '</p>' +
     '<table class="print-table"><thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Subtotal</th></tr></thead>' +
     '<tbody>' + (rows || '<tr><td colspan="4">Nenhum consumo lançado.</td></tr>') + '</tbody></table>' +
-    '<div class="print-total">' + rodape + '</div>' + notaAlteracoes + pixHtml;
+    '<div class="print-total">' + rodape + '<br>Forma de pagamento: <strong>' + forma + '</strong></div>' + notaAlteracoes + pixHtml;
   setPrintOrientation('portrait');
   document.getElementById('printArea').innerHTML = html;
   if(payload && window.QRCode){
