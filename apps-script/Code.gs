@@ -773,6 +773,43 @@ function criarAcionadorReservas(){
   return {ok:true, info:'Acionador ativo: atualiza a cada 2 horas.' + (removidos ? ' (' + removidos + ' acionador(es) antigo(s) substituído(s))' : '')};
 }
 
-// O backup automático da planilha (DriveApp) fica em apps-script/Backup.gs.txt e
-// NÃO é publicado aqui, pois exige o dono autorizar a permissão do Drive uma vez.
-// Veja as instruções de ativação no topo daquele arquivo.
+// ---------- Backup automático da planilha ----------
+// Cópia datada da planilha inteira numa pasta do Drive, todo dia (mantém as últimas
+// BACKUP_MANTER). Usa DriveApp/ScriptApp: o dono roda "configurarBackupDiario" uma
+// vez pelo editor e AUTORIZA a permissão do Drive. O backup roda por gatilho (Head),
+// então não depende de republicar o web app.
+var BACKUP_FOLDER = 'Backups - Painel Encantos';
+var BACKUP_MANTER = 30;
+function pastaBackup_(){
+  var it = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(BACKUP_FOLDER);
+}
+function fazerBackup_(){
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var arq = DriveApp.getFileById(ss.getId());
+  var pasta = pastaBackup_();
+  var tz = Session.getScriptTimeZone();
+  var nome = 'Backup ' + Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HHmm') + ' - ' + ss.getName();
+  arq.makeCopy(nome, pasta);
+  var it = pasta.getFiles();
+  var lista = [];
+  while(it.hasNext()) lista.push(it.next());
+  lista.sort(function(a, b){ return b.getDateCreated().getTime() - a.getDateCreated().getTime(); });
+  var apagados = 0;
+  for(var i = BACKUP_MANTER; i < lista.length; i++){ lista[i].setTrashed(true); apagados++; }
+  return {ok:true, nome:nome, totalNaPasta:Math.min(lista.length, BACKUP_MANTER), podados:apagados};
+}
+// Rode UMA vez pelo editor (botão Executar) e autorize. Cria o gatilho diário (3h)
+// e já faz o primeiro backup. Sem "_" no fim: o editor só lista no menu Executar as
+// funções que não terminam em underscore.
+function configurarBackupDiario(){
+  var trigs = ScriptApp.getProjectTriggers();
+  var removidos = 0;
+  for(var i=0;i<trigs.length;i++){
+    if(trigs[i].getHandlerFunction() === 'fazerBackup_'){ ScriptApp.deleteTrigger(trigs[i]); removidos++; }
+  }
+  ScriptApp.newTrigger('fazerBackup_').timeBased().everyDays(1).atHour(3).create();
+  var r = fazerBackup_();
+  r.gatilho = 'diário às 3h (' + removidos + ' antigo(s) substituído(s))';
+  return r;
+}
