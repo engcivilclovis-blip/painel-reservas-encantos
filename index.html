@@ -1102,7 +1102,7 @@ function refreshFrigobarCache(){
       if(config && typeof config === 'object' && !config.error){
         if(config.valorFaxinaCabana !== undefined) valorFaxinaCabana = Number(config.valorFaxinaCabana) || 80;
         if(config.valorFaxinaContainer !== undefined) valorFaxinaContainer = Number(config.valorFaxinaContainer) || 80;
-        if(config.pixKey !== undefined) pixKey = config.pixKey || '';
+        if(config.pixKey !== undefined) pixKey = config.pixKey != null && config.pixKey !== '' ? String(config.pixKey) : '';   // sempre texto (chave numérica não pode virar Number)
         if(config.pixNome !== undefined && config.pixNome) pixNome = config.pixNome;
         if(config.pixCidade !== undefined && config.pixCidade) pixCidade = config.pixCidade;
         if(config.waManutencaoFone !== undefined) waManutFone = config.waManutencaoFone || '';
