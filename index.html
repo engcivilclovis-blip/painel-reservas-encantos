@@ -3324,10 +3324,11 @@ function renderFaturamento(){
   html += '<h3 style="margin:18px 0 6px;font-size:14px;color:var(--brand-charcoal);">🔁 Conferência de canais por mês (reservas × recebido, com taxa)</h3>';
   html += secaoConferenciaCanal_('Booking.com', 'Booking.com', taxaBookingPct, de, ate);
   html += secaoConferenciaCanal_('Airbnb', 'Airbnb', taxaAirbnbPct, de, ate);
-  html += '<p class="empty" style="font-size:11px;margin-top:4px;">Bruto = valor das reservas do canal (por check-in). Líq. esperado = bruto − taxa. Recebido = repasses do canal no extrato. A diferença pode variar por <b>quando</b> a plataforma repassa (o mês do repasse nem sempre é o do check-in); no total do período tende a fechar. Taxa efetiva = 1 − recebido/bruto.</p>';
+  html += '<p class="empty" style="font-size:11px;margin-top:4px;">As plataformas depositam no <b>mês seguinte</b>: cada linha compara as reservas do mês (por check-in) com os repasses recebidos <b>no mês seguinte</b> (ex.: reservas de jul → repasse em ago). Líq. esperado = bruto − taxa. Taxa efetiva = 1 − recebido/bruto. Se um mês ainda não teve o repasse, aparece diferença até o depósito cair.</p>';
 
   box.innerHTML = html;
 }
+function mesSeguinte_(ym){ const p = ym.split('-'); let y=+p[0], m=+p[1]+1; if(m>12){ m=1; y++; } return y + '-' + ('0'+m).slice(-2); }
 function secaoConferenciaCanal_(titulo, platName, taxaPct, de, ate){
   const deMs = de ? de.getTime() : -Infinity, ateMs = ate ? ate.getTime() : Infinity;
   const bruto = {}, receb = {};
@@ -3338,27 +3339,31 @@ function secaoConferenciaCanal_(titulo, platName, taxaPct, de, ate){
     const t = d.getTime(); if(t < deMs || t > ateMs) return;
     const ym = mesAnoMs_(t); const b = bruto[ym] || {v:0, n:0}; b.v += Number(r.valor)||0; b.n++; bruto[ym] = b;
   });
+  // Repasses do canal indexados por mês do crédito, SEM filtro de período — assim
+  // o depósito do mês seguinte (ex.: agosto p/ reservas de julho) é encontrado
+  // mesmo quando cai logo após o fim do período.
   (sicrediCreditos||[]).forEach(function(c){
     if(canalDoPagador_(c.pagador) !== platName) return;
-    const t = dataBrParaMs_(c.data); if(!t || t < deMs || t > ateMs) return;
+    const t = dataBrParaMs_(c.data); if(!t) return;
     const ym = mesAnoMs_(t); const x = receb[ym] || {v:0, n:0}; x.v += c.valor; x.n++; receb[ym] = x;
   });
-  const meses = Array.from(new Set(Object.keys(bruto).concat(Object.keys(receb)))).sort();
-  if(!meses.length) return '<p class="empty" style="font-size:12px;">' + titulo + ': sem reservas nem repasses no período.</p>';
+  const meses = Object.keys(bruto).sort();          // linhas = meses das reservas no período
+  if(!meses.length) return '<p class="empty" style="font-size:12px;">' + titulo + ': sem reservas no período.</p>';
   let tBruto=0, tReceb=0, tLiq=0;
   let linhas = '';
   meses.forEach(function(ym){
-    const g = bruto[ym] || {v:0,n:0}, rcv = receb[ym] || {v:0,n:0};
+    const ymRec = mesSeguinte_(ym);                 // repasse cai no mês seguinte
+    const g = bruto[ym] || {v:0,n:0}, rcv = receb[ymRec] || {v:0,n:0};
     const liq = g.v * (1 - taxaPct/100), dif = rcv.v - liq;
     const taxaEf = g.v ? Math.round((1 - rcv.v/g.v)*1000)/10 : null;
     tBruto += g.v; tReceb += rcv.v; tLiq += liq;
     const cor = Math.abs(dif) < 1 ? 'inherit' : (dif < 0 ? '#b00020' : '#1b7a3d');
-    linhas += '<tr><td>' + mesRotulo_(ym) + '</td><td>' + g.n + '</td><td>' + fmtMoney(g.v) + '</td><td>' + fmtMoney(liq) + '</td><td>' + fmtMoney(rcv.v) + '</td><td style="color:' + cor + ';">' + fmtMoney(dif) + '</td><td>' + (taxaEf==null?'—':taxaEf+'%') + '</td></tr>';
+    linhas += '<tr><td>' + mesRotulo_(ym) + ' → ' + mesRotulo_(ymRec) + '</td><td>' + g.n + '</td><td>' + fmtMoney(g.v) + '</td><td>' + fmtMoney(liq) + '</td><td>' + fmtMoney(rcv.v) + '</td><td style="color:' + cor + ';">' + fmtMoney(dif) + '</td><td>' + (taxaEf==null?'—':taxaEf+'%') + '</td></tr>';
   });
   const difTot = tReceb - tLiq, taxaEfTot = tBruto ? Math.round((1 - tReceb/tBruto)*1000)/10 : null;
   const corTot = Math.abs(difTot) < 1 ? 'inherit' : (difTot < 0 ? '#b00020' : '#1b7a3d');
   let t = '<h4 style="margin:10px 0 4px;font-size:13px;">' + titulo + ' — taxa esperada ' + taxaPct + '%' + (taxaEfTot!=null ? ' · efetiva no período <b>' + taxaEfTot + '%</b>' : '') + '</h4>';
-  t += '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr><th>Mês</th><th>Reservas</th><th>Bruto</th><th>Líq. esperado</th><th>Recebido</th><th>Dif.</th><th>Taxa efet.</th></tr></thead><tbody>' + linhas +
+  t += '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr><th>Reserva → repasse</th><th>Reservas</th><th>Bruto</th><th>Líq. esperado</th><th>Recebido (mês seg.)</th><th>Dif.</th><th>Taxa efet.</th></tr></thead><tbody>' + linhas +
     '<tr style="font-weight:700;border-top:2px solid var(--border);"><td>Total</td><td></td><td>' + fmtMoney(tBruto) + '</td><td>' + fmtMoney(tLiq) + '</td><td>' + fmtMoney(tReceb) + '</td><td style="color:' + corTot + ';">' + fmtMoney(difTot) + '</td><td>' + (taxaEfTot==null?'—':taxaEfTot+'%') + '</td></tr>' +
     '</tbody></table></div>';
   return t;
