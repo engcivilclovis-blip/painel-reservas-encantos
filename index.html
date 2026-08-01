@@ -2517,12 +2517,12 @@ function updateAdminUI(){
   mbtn.classList.toggle('is-active', isManutColab);
   updateSidebarUI();
 }
-function isOperador(){ return isAdmin || isFaxineira; }
-function hideFinance(){
-  if(isAdmin) return false;
-  if(isFaxineira) return true;
-  return false;
-}
+// Operar o frigobar (lançar consumo + gerar a fatura do hóspede): todos os papéis
+// EXCETO o de manutenção. A fatura de não-admin mostra só o total do frigobar.
+function isOperador(){ return !isManutColab; }
+// Financeiro da reserva (saldo/valor) é só do admin — todo o resto vê apenas o
+// consumo do frigobar na fatura.
+function hideFinance(){ return !isAdmin; }
 function updateSidebarUI(){
   const podeReservas = !isManutColab;
   const podeFaxinas = isAdmin || isFaxineira;
@@ -3448,7 +3448,7 @@ function renderVendas(){
    Tudo usa o endpoint 'consumo' já publicado — nenhuma mudança no robô. */
 let consumoKey = null, consumoQtd = {}, consumoTipo = 'consumo';
 function abrirConsumoRapido(keyEnc){
-  if(!isOperador()){ alert('Somente o administrador ou o colaborador da limpeza podem lançar consumo.'); return; }
+  if(!isOperador()){ alert('O colaborador de manutenção não lança consumo de frigobar.'); return; }
   consumoKey = decodeURIComponent(keyEnc);
   consumoQtd = {}; consumoTipo = 'consumo';
   renderConsumoModal();
@@ -3741,7 +3741,7 @@ function clearFbForm(){
   document.getElementById('fbItemPreset').value = '';
 }
 function addFrigobarItem(){
-  if(!isOperador()){ alert('Somente administradores ou o colaborador da limpeza podem lançar consumo de frigobar.'); return; }
+  if(!isOperador()){ alert('O colaborador de manutenção não lança consumo de frigobar.'); return; }
   if(!currentDetailKey){ alert('Selecione uma reserva primeiro.'); return; }
   const desc = document.getElementById('fbDesc').value.trim();
   const valor = parseFloat(document.getElementById('fbValor').value);
