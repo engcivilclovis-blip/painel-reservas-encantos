@@ -791,7 +791,7 @@ function apiSaveObs(reservaChave, reservaLabel, obs){
 function apiGetProdutos(){
   return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=produtos').then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
-function apiGetMovimentos(){
+function apiGetMovimentosTodos(){
   return fetchWithTimeout_(FRIGOBAR_API_URL + '?action=movimentosTodos&_=' + Date.now(), null, 25000).then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
 }
 function apiSalvarProduto(nome, preco, nomeOriginal){
@@ -1069,6 +1069,46 @@ let pedidosMaterialLocal = [];
 try { pedidosMaterialLocal = JSON.parse(localStorage.getItem('painelPedidosMaterial') || '[]'); } catch(e){ pedidosMaterialLocal = []; }
 function savePedidosMaterialLocal(){ localStorage.setItem('painelPedidosMaterial', JSON.stringify(pedidosMaterialLocal)); }
 let currentDetailFbItems = [];
+// Ajustes de preço/desconto por item da fatura (chave = id do movimento).
+// { [movId]: {precoNovo, precoOrig, motivo, em} } — persistido na Config e sincronizado.
+let faturaAjustes = {};
+function precoItemFatura_(it){
+  const a = faturaAjustes[it.id];
+  return a && a.precoNovo != null ? Number(a.precoNovo) : Number(it.valor)||0;
+}
+function salvarFaturaAjustes_(){
+  const payload = JSON.stringify(faturaAjustes);
+  if(apiAvailable()) apiSalvarConfig('faturaAjustes', payload).catch(()=>{});
+  try { localStorage.setItem('painelFaturaAjustes', payload); } catch(e){}
+}
+// Registra uma linha no histórico (observações) da reserva atual — o admin vê ali.
+function logHistoricoReserva_(texto){
+  const key = currentDetailKey; if(!key) return;
+  const carimbo = new Date().toLocaleString('pt-BR');
+  const quem = isAdmin ? 'admin' : isFaxineira ? 'limpeza' : 'recepção';
+  const atual = obsCache[key] || (getDetail(key).obs || '');
+  const nova = (atual ? atual + '\n' : '') + '• ' + carimbo + ' — ' + texto + ' (por ' + quem + ')';
+  const sel = document.getElementById('detailsResSelect');
+  const label = sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : key;
+  if(apiAvailable()){ obsCache[key] = nova; scheduleObsSave(key, label, nova); }
+  else { getDetail(key).obs = nova; saveDetails(); }
+  const ta = document.getElementById('obsText'); if(ta) ta.value = nova;
+}
+function ajustarPrecoItem(id){
+  if(!isOperador()){ alert('O colaborador de manutenção não altera a fatura.'); return; }
+  const it = currentDetailFbItems.find(x => String(x.id) === String(id)); if(!it) return;
+  const atual = precoItemFatura_(it);
+  const orig = faturaAjustes[id] ? faturaAjustes[id].precoOrig : (Number(it.valor)||0);
+  const resp = prompt('Novo preço UNITÁRIO de "' + it.desc + '" (deixe menor que ' + fmtMoney(orig) + ' para dar desconto):', atual.toFixed(2).replace('.', ','));
+  if(resp === null) return;
+  const novo = parseNumber(resp);
+  if(!(novo >= 0)){ alert('Valor inválido.'); return; }
+  const motivo = (prompt('Motivo da alteração (aparece no rodapé do recibo e no histórico):', faturaAjustes[id] ? (faturaAjustes[id].motivo||'') : '') || '').trim();
+  faturaAjustes[id] = {precoNovo:novo, precoOrig:orig, motivo:motivo, em:new Date().toLocaleString('pt-BR')};
+  salvarFaturaAjustes_();
+  logHistoricoReserva_('Frigobar: preço de "' + it.desc + '" alterado de ' + fmtMoney(orig) + ' para ' + fmtMoney(novo) + (motivo ? ' — ' + motivo : ''));
+  renderFrigobarTable();
+}
 let obsSaveTimer = null;
 let obsSavePending = null;
 
@@ -1113,6 +1153,7 @@ function refreshFrigobarCache(){
         if(config.waAdminKey !== undefined) waAdminKey = config.waAdminKey || '';
         if(config.frigobarCustos){ try { frigobarCustos = JSON.parse(config.frigobarCustos) || {}; } catch(e){} }
         if(config.checkinsFeitos){ try { checkinsFeitos = JSON.parse(config.checkinsFeitos) || {}; } catch(e){} }
+        if(config.faturaAjustes){ try { faturaAjustes = JSON.parse(config.faturaAjustes) || {}; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
         protecaoAtiva = !!config.apiSecretSet;
@@ -3373,7 +3414,7 @@ function abrirVendas(){
   document.getElementById('vendasModal').style.display = 'flex';
   document.getElementById('vendasBody').innerHTML = '<p class="empty">Carregando…</p>';
   if(!apiAvailable()){ document.getElementById('vendasBody').innerHTML = '<p class="empty">Exige a planilha (API) ativa.</p>'; return; }
-  apiGetMovimentos()
+  apiGetMovimentosTodos()
     .then(function(m){ vendasMovimentos = Array.isArray(m) ? m : []; renderVendas(); })
     .catch(function(){ document.getElementById('vendasBody').innerHTML = '<p class="empty">Não consegui carregar as vendas agora. Verifique a conexão.</p>'; });
 }
@@ -3715,11 +3756,17 @@ function loadFrigobarTableFor(key){
 function renderFrigobarTable(){
   const wrap = document.getElementById('fbTableWrap');
   if(!wrap || !currentDetailKey) return;
-  const rows = currentDetailFbItems.map(it => '<tr>' +
-    '<td>' + it.desc + '</td><td>' + it.qtd + '</td><td>' + fmtMoney(it.valor) + '</td><td>' + fmtMoney(it.qtd*it.valor) + '</td>' +
-    '<td>' + (isAdmin ? '<button class="mini secondary" onclick="removeFrigobarItem(\'' + it.id + '\')">remover</button>' : '') + '</td></tr>'
-  ).join('');
-  const total = currentDetailFbItems.reduce((s,it) => s + it.qtd*it.valor, 0);
+  const rows = currentDetailFbItems.map(it => {
+    const preco = precoItemFatura_(it);
+    const aj = faturaAjustes[it.id];
+    const unitCell = aj ? ('<span style="text-decoration:line-through;color:#aaa;">' + fmtMoney(aj.precoOrig) + '</span> <b>' + fmtMoney(preco) + '</b>') : fmtMoney(preco);
+    const acoes = isOperador()
+      ? '<button class="mini secondary" onclick="ajustarPrecoItem(\'' + it.id + '\')">✏️ preço</button> ' +
+        '<button class="mini secondary" onclick="removeFrigobarItem(\'' + it.id + '\')">remover</button>'
+      : '';
+    return '<tr><td>' + it.desc + '</td><td>' + it.qtd + '</td><td>' + unitCell + '</td><td>' + fmtMoney(it.qtd*preco) + '</td><td>' + acoes + '</td></tr>';
+  }).join('');
+  const total = currentDetailFbItems.reduce((s,it) => s + it.qtd*precoItemFatura_(it), 0);
   wrap.innerHTML = `
     <table class="fb-table">
       <thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Subtotal</th><th></th></tr></thead>
@@ -3764,8 +3811,13 @@ function addFrigobarItem(){
   }
 }
 function removeFrigobarItem(id){
-  if(!isAdmin){ alert('Somente administradores podem editar o frigobar.'); return; }
+  if(!isOperador()){ alert('O colaborador de manutenção não altera a fatura.'); return; }
   if(!currentDetailKey) return;
+  const it = currentDetailFbItems.find(x => String(x.id) === String(id));
+  const nome = it ? it.desc : 'item';
+  if(!confirm('Remover "' + nome + '" da fatura? A alteração fica registrada no histórico da reserva.')) return;
+  if(faturaAjustes[id]){ delete faturaAjustes[id]; salvarFaturaAjustes_(); }
+  logHistoricoReserva_('Frigobar: item "' + nome + '" removido da fatura');
   if(apiAvailable()){
     apiPost({action:'remover', id:id})
       .then(() => { loadFrigobarTableFor(currentDetailKey); refreshFrigobarCache(); })
@@ -3941,10 +3993,19 @@ function imprimirFaturaFrigobar(){
   const res = reservations.find(r => resKey(r) === currentDetailKey);
   const sel = document.getElementById('detailsResSelect');
   const label = sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : currentDetailKey;
-  const rows = currentDetailFbItems.map(it => '<tr>' +
-    '<td>' + it.desc + '</td><td>' + it.qtd + '</td><td>' + fmtMoney(it.valor) + '</td><td>' + fmtMoney(it.qtd*it.valor) + '</td>' +
-  '</tr>').join('');
-  const totalFrigobar = currentDetailFbItems.reduce((s,it) => s + it.qtd*it.valor, 0);
+  const rows = currentDetailFbItems.map(it => {
+    const preco = precoItemFatura_(it);
+    return '<tr><td>' + it.desc + (faturaAjustes[it.id] ? ' *' : '') + '</td><td>' + it.qtd + '</td><td>' + fmtMoney(preco) + '</td><td>' + fmtMoney(it.qtd*preco) + '</td></tr>';
+  }).join('');
+  const totalFrigobar = currentDetailFbItems.reduce((s,it) => s + it.qtd*precoItemFatura_(it), 0);
+  // Rodapé de alterações de preço/desconto (só dos itens presentes na fatura).
+  const alteracoes = currentDetailFbItems.filter(it => faturaAjustes[it.id]).map(it => {
+    const a = faturaAjustes[it.id];
+    return '* ' + it.desc + ': preço alterado de ' + fmtMoney(a.precoOrig) + ' para ' + fmtMoney(a.precoNovo) + (a.motivo ? ' — ' + a.motivo : '');
+  });
+  const notaAlteracoes = alteracoes.length
+    ? '<div style="margin-top:10px;font-size:10px;color:#666;border-top:1px dashed #ccc;padding-top:6px;"><b>Observações:</b><br>' + alteracoes.join('<br>') + '</div>'
+    : '';
   const saldo = res ? (res.saldo||0) : 0;
   const totalGeral = saldo + totalFrigobar;
   const rodape = hideFinance()
@@ -3966,7 +4027,7 @@ function imprimirFaturaFrigobar(){
     '<p><strong>Hóspede/reserva:</strong> ' + label + '</p>' +
     '<table class="print-table"><thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Subtotal</th></tr></thead>' +
     '<tbody>' + (rows || '<tr><td colspan="4">Nenhum consumo lançado.</td></tr>') + '</tbody></table>' +
-    '<div class="print-total">' + rodape + '</div>' + pixHtml;
+    '<div class="print-total">' + rodape + '</div>' + notaAlteracoes + pixHtml;
   setPrintOrientation('portrait');
   document.getElementById('printArea').innerHTML = html;
   if(payload && window.QRCode){
