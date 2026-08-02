@@ -356,6 +356,7 @@
     <button class="btn-details" id="productsBtn" onclick="openProductsModal()" style="display:none;">🧾 Produtos do frigobar</button>
     <button class="btn-details" id="pixBtn" onclick="openPixModal()" style="display:none;">💳 Dados PIX (cobrança)</button>
     <button class="btn-details" id="telegramBtn" onclick="openTelegramModal()" style="display:none;">🔔 Alertas no WhatsApp</button>
+    <button class="btn-details" id="cestaBtn" onclick="openCestaConfig()" style="display:none;">☕ Cesta de café</button>
   </div>
 </div>
 
@@ -449,6 +450,34 @@
     <label for="pixCidadeInput">Cidade</label>
     <input type="text" id="pixCidadeInput" placeholder="Sao Joaquim" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:12px;">
     <button onclick="salvarPix()">Salvar</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="cestaConfigModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>☕ Cesta de café da manhã</h2>
+      <button class="secondary" onclick="closeCestaConfig()">Fechar</button>
+    </div>
+    <p style="font-size:13px;color:#5a5049;">Duas opções de cesta + o fornecedor terceirizado. No FazReservas, marque a reserva com a <b>tag</b> correspondente (ex.: <code>cesta1</code>/<code>cesta2</code>) — o painel lê e concilia. Também dá para marcar manualmente em cada reserva.</p>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;">
+      <label class="chk" style="gap:4px;">Opção 1 — nome <input type="text" id="cOp1Nome" style="width:180px;"></label>
+      <label class="chk" style="gap:4px;">R$ <input type="number" id="cOp1Preco" step="0.01" style="width:80px;"></label>
+      <label class="chk" style="gap:4px;">tag <input type="text" id="cOp1Tag" style="width:90px;"></label>
+    </div>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;margin-top:6px;">
+      <label class="chk" style="gap:4px;">Opção 2 — nome <input type="text" id="cOp2Nome" style="width:180px;"></label>
+      <label class="chk" style="gap:4px;">R$ <input type="number" id="cOp2Preco" step="0.01" style="width:80px;"></label>
+      <label class="chk" style="gap:4px;">tag <input type="text" id="cOp2Tag" style="width:90px;"></label>
+    </div>
+    <hr style="margin:12px 0;">
+    <label>Fornecedor terceirizado</label>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;">
+      <label class="chk" style="gap:4px;">Nome <input type="text" id="cFornNome" style="width:180px;"></label>
+      <label class="chk" style="gap:4px;">WhatsApp <input type="text" id="cFornFone" placeholder="+5549999999999" style="width:150px;"></label>
+      <label class="chk" style="gap:4px;">Chave PIX <input type="text" id="cFornPix" placeholder="CPF/CNPJ/celular/aleatória" style="width:200px;"></label>
+    </div>
+    <button style="margin-top:12px;" onclick="salvarCestaConfig()">Salvar</button>
   </div>
 </div>
 
@@ -1057,6 +1086,10 @@ function valorFaxinaPorCabana(cabana){
 }
 // Dados PIX (para o QR Code na fatura de frigobar)
 let pixKey = '', pixNome = 'Encantos de Altitude', pixCidade = 'Sao Joaquim';
+// Cesta de café da manhã (2 opções + fornecedor terceirizado). Config global.
+let cestaCfg = { op1Nome:'Café da manhã (individual)', op1Preco:12, op1Tag:'cesta1', op2Nome:'Cesta completa', op2Preco:140, op2Tag:'cesta2', fornNome:'', fornFone:'', fornPix:'' };
+// Por reserva: {opcao:0|1|2 (0=nenhuma), manual:bool, qtd, horario, pago}. opcao ausente = usa a tag.
+let cestas = {};
 let faxinaDetailsLocal = {};
 try { faxinaDetailsLocal = JSON.parse(localStorage.getItem('painelFaxinas') || '{}'); } catch(e){ faxinaDetailsLocal = {}; }
 function saveFaxinasLocal(){ localStorage.setItem('painelFaxinas', JSON.stringify(faxinaDetailsLocal)); }
@@ -1178,6 +1211,8 @@ function refreshFrigobarCache(){
         if(config.recibosNum){ try { recibosNum = JSON.parse(config.recibosNum) || {}; } catch(e){} }
         if(config.reciboSeq !== undefined && config.reciboSeq !== '') reciboSeq = Number(config.reciboSeq) || 0;
         if(config.faturaFormaPgto){ try { faturaFormaPgto = JSON.parse(config.faturaFormaPgto) || {}; } catch(e){} }
+        if(config.cestaCfg){ try { cestaCfg = Object.assign(cestaCfg, JSON.parse(config.cestaCfg) || {}); } catch(e){} }
+        if(config.cestas){ try { cestas = JSON.parse(config.cestas) || {}; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
         protecaoAtiva = !!config.apiSecretSet;
@@ -2573,6 +2608,7 @@ function updateAdminUI(){
   document.getElementById('productsBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('pixBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('telegramBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
+  document.getElementById('cestaBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('syncReservasBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   const fbtn = document.getElementById('faxineiraToggleBtn');
   fbtn.textContent = isFaxineira ? '🧹 Colaborador da Limpeza (clique para sair)' : '🧹 Entrar como colaborador da limpeza';
@@ -2767,6 +2803,7 @@ function csvParaReservas_(text){
     list.push({
       numero: get('numero'),
       status: get('status'),
+      tag: get('tag'),
       propriedade: get('propriedade'),
       acomodacao: get('acomodacao') || get('unidade'),
       unidade: get('unidade'),
@@ -2813,10 +2850,10 @@ function isoData_(d){ return d ? (d.getFullYear()+'-'+('0'+(d.getMonth()+1)).sli
 function chaveReserva_(r){ return norm(r.nome||'') + '|' + isoData_(r.checkin) + '|' + isoData_(r.checkout); }
 function csvEscapar_(v){ v = (v==null?'':String(v)); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 function reservasParaCsv_(list){
-  const H = ['numero','status','propriedade','acomodacao','unidade','checkin','checkout','noites','nome','email','telefone','adultos','criancas','referencia','saldo','valor'];
+  const H = ['numero','status','tag','propriedade','acomodacao','unidade','checkin','checkout','noites','nome','email','telefone','adultos','criancas','referencia','saldo','valor'];
   const linhas = [H.join(',')];
   (list||[]).forEach(function(r){
-    linhas.push([r.numero||'', r.status||'', r.propriedade||'', r.acomodacao||'', r.unidade||'',
+    linhas.push([r.numero||'', r.status||'', r.tag||'', r.propriedade||'', r.acomodacao||'', r.unidade||'',
       isoData_(r.checkin), isoData_(r.checkout), noitesReserva_(r), r.nome||'', r.email||'', r.telefone||'',
       (r.adultos||''), (r.criancas||''), r.referencia||'',
       (r.saldo!=null?r.saldo:''), (r.valor!=null?r.valor:'')].map(csvEscapar_).join(','));
@@ -3648,6 +3685,150 @@ function frigobarDaReserva(res){
   const base = Number((frigobarTotalsCache && frigobarTotalsCache[chave]) || 0);
   return Math.max(0, base + ajusteFrigobarReserva_(chave));
 }
+
+// ---------- Cesta de café da manhã (conciliada com a tag do FazReservas) ----------
+function cestaAutoDaTag_(res){
+  const t = norm((res && res.tag) || '');
+  if(!t) return 0;
+  const t2 = norm(cestaCfg.op2Tag || ''), t1 = norm(cestaCfg.op1Tag || '');
+  if(t2 && t.indexOf(t2) > -1) return 2;
+  if(t1 && t.indexOf(t1) > -1) return 1;
+  return 0;
+}
+function cestaDaReserva_(res){
+  const k = resKey(res), c = cestas[k] || {};
+  const opcao = c.manual ? (Number(c.opcao) || 0) : cestaAutoDaTag_(res);
+  const preco = opcao === 1 ? (Number(cestaCfg.op1Preco) || 0) : opcao === 2 ? (Number(cestaCfg.op2Preco) || 0) : 0;
+  const nome = opcao === 1 ? cestaCfg.op1Nome : opcao === 2 ? cestaCfg.op2Nome : '';
+  const qtd = Math.max(1, Number(c.qtd) || 1);
+  return { opcao, nome, preco, qtd, total: preco * qtd, horario: c.horario || '', pago: !!c.pago, manual: !!c.manual, fonte: c.manual ? 'manual' : (opcao ? 'tag do FazReservas' : '') };
+}
+function salvarCestas_(){
+  const p = JSON.stringify(cestas);
+  if(apiAvailable()) apiSalvarConfig('cestas', p).catch(()=>{});
+  try { localStorage.setItem('painelCestas', p); } catch(e){}
+}
+function openCestaConfig(){
+  if(!isAdmin){ alert('Somente o administrador configura a cesta.'); return; }
+  document.getElementById('cOp1Nome').value = cestaCfg.op1Nome || '';
+  document.getElementById('cOp1Preco').value = cestaCfg.op1Preco || 0;
+  document.getElementById('cOp1Tag').value = cestaCfg.op1Tag || '';
+  document.getElementById('cOp2Nome').value = cestaCfg.op2Nome || '';
+  document.getElementById('cOp2Preco').value = cestaCfg.op2Preco || 0;
+  document.getElementById('cOp2Tag').value = cestaCfg.op2Tag || '';
+  document.getElementById('cFornNome').value = cestaCfg.fornNome || '';
+  document.getElementById('cFornFone').value = cestaCfg.fornFone || '';
+  document.getElementById('cFornPix').value = cestaCfg.fornPix || '';
+  document.getElementById('cestaConfigModal').style.display = 'flex';
+}
+function closeCestaConfig(){ document.getElementById('cestaConfigModal').style.display = 'none'; }
+function salvarCestaConfig(){
+  if(!isAdmin){ alert('Somente o administrador configura a cesta.'); return; }
+  cestaCfg = {
+    op1Nome: document.getElementById('cOp1Nome').value.trim() || 'Opção 1',
+    op1Preco: Number(document.getElementById('cOp1Preco').value) || 0,
+    op1Tag: document.getElementById('cOp1Tag').value.trim() || 'cesta1',
+    op2Nome: document.getElementById('cOp2Nome').value.trim() || 'Opção 2',
+    op2Preco: Number(document.getElementById('cOp2Preco').value) || 0,
+    op2Tag: document.getElementById('cOp2Tag').value.trim() || 'cesta2',
+    fornNome: document.getElementById('cFornNome').value.trim(),
+    fornFone: document.getElementById('cFornFone').value.trim(),
+    fornPix: document.getElementById('cFornPix').value.trim()
+  };
+  const p = JSON.stringify(cestaCfg);
+  if(apiAvailable()) apiSalvarConfig('cestaCfg', p).catch(()=>{});
+  try { localStorage.setItem('painelCestaCfg', p); } catch(e){}
+  closeCestaConfig();
+  if(currentDetailKey) renderDetailsBody();
+  alert('Configuração da cesta salva.');
+}
+function _cestaObj(k){ if(!cestas[k]) cestas[k] = {}; return cestas[k]; }
+function setCestaOpcao(kEnc, val){
+  if(!isOperador()){ alert('O colaborador de manutenção não altera a cesta.'); return; }
+  const k = decodeURIComponent(kEnc), o = _cestaObj(k), v = Number(val);
+  if(v === -1){ o.manual = false; delete o.opcao; }   // volta a usar a tag
+  else { o.manual = true; o.opcao = v; }
+  salvarCestas_(); renderDetailsBody();
+}
+function setCestaCampo(kEnc, campo, val){
+  if(!isOperador()) return;
+  const k = decodeURIComponent(kEnc), o = _cestaObj(k);
+  o[campo] = (campo === 'qtd') ? (Math.max(1, Number(val) || 1)) : val;
+  salvarCestas_();
+  if(campo === 'qtd') renderDetailsBody();
+}
+function toggleCestaPago(kEnc, checked){
+  if(!isOperador()) return;
+  const k = decodeURIComponent(kEnc), o = _cestaObj(k);
+  o.pago = !!checked;
+  salvarCestas_(); renderDetailsBody();
+}
+function avisarFornecedorCesta(kEnc){
+  const k = decodeURIComponent(kEnc);
+  const res = reservations.find(r => resKey(r) === k); if(!res) return;
+  const c = cestaDaReserva_(res);
+  if(!c.opcao){ alert('Esta reserva não tem cesta marcada.'); return; }
+  if(!cestaCfg.fornFone){ alert('Cadastre o telefone do fornecedor em "☕ Cesta de café" primeiro.'); return; }
+  const cab = (res.acomodacao || res.unidade || '');
+  const msg = 'Olá' + (cestaCfg.fornNome ? ', ' + cestaCfg.fornNome : '') + '! Pedido de CESTA DE CAFÉ DA MANHÃ — Encantos de Altitude:\n' +
+    '• Acomodação: ' + cab + '\n' +
+    '• Hóspede: ' + (res.nome || '') + '\n' +
+    '• Opção: ' + c.nome + (c.qtd > 1 ? ' (x' + c.qtd + ')' : '') + '\n' +
+    '• Horário desejado: ' + (c.horario || 'a combinar') + '\n' +
+    '• Período: ' + (res.checkin ? res.checkin.toLocaleDateString('pt-BR') : '') + (res.checkout ? ' a ' + res.checkout.toLocaleDateString('pt-BR') : '');
+  window.open(linkWhatsApp_(cestaCfg.fornFone) + '?text=' + encodeURIComponent(msg), '_blank');
+}
+function enviarPixCestaHospede(kEnc){
+  const k = decodeURIComponent(kEnc);
+  const res = reservations.find(r => resKey(r) === k); if(!res) return;
+  const c = cestaDaReserva_(res);
+  if(!c.opcao){ alert('Esta reserva não tem cesta marcada.'); return; }
+  if(!cestaCfg.fornPix){ alert('Cadastre a chave PIX do fornecedor em "☕ Cesta de café" primeiro.'); return; }
+  if(!res.telefone){ alert('Esta reserva não tem telefone do hóspede.'); return; }
+  const msg = 'Olá ' + (res.nome || '') + '! Sobre a sua cesta de café da manhã (' + c.nome + (c.qtd > 1 ? ' x' + c.qtd : '') + ') — total ' + fmtMoney(c.total) + '.\n' +
+    'O pagamento é feito direto ao nosso fornecedor, via PIX:\n' +
+    '🔑 Chave: ' + cestaCfg.fornPix + (cestaCfg.fornNome ? '\n👤 ' + cestaCfg.fornNome : '') + '\n' +
+    'Assim que confirmar, avise para combinarmos o horário de entrega. Obrigado!';
+  window.open(linkWhatsApp_(res.telefone) + '?text=' + encodeURIComponent(msg), '_blank');
+}
+function cestaReservaHtml(res){
+  if(!res) return '';
+  const k = resKey(res), kEnc = encodeURIComponent(k), c = cestaDaReserva_(res);
+  const manualSel = (cestas[k] && cestas[k].manual) ? (Number(cestas[k].opcao) || 0) : -1;
+  const opt = (v, txt) => '<option value="' + v + '"' + (manualSel === v ? ' selected' : '') + '>' + txt + '</option>';
+  const statusBadge = !c.opcao ? '<span style="color:#8a7d6f;">sem cesta</span>'
+    : (c.pago ? '<span style="color:#1b7a3d;font-weight:600;">✅ paga (fornecedor)</span>' : '<span style="color:#b00020;font-weight:600;">⚠️ a pagar (direto ao fornecedor)</span>');
+  let html = '<hr><label>☕ Cesta de café da manhã</label>';
+  if(isOperador()){
+    html += '<div class="frigobar-add" style="flex-wrap:wrap;gap:8px;align-items:center;">' +
+      '<select onchange="setCestaOpcao(\'' + kEnc + '\', this.value)">' +
+        opt(-1, 'Auto (tag FazReservas' + (cestaAutoDaTag_(res) ? ': ' + (cestaAutoDaTag_(res)===1?cestaCfg.op1Nome:cestaCfg.op2Nome) : ' — nenhuma') + ')') +
+        opt(0, 'Nenhuma') +
+        opt(1, cestaCfg.op1Nome + ' — ' + fmtMoney(cestaCfg.op1Preco)) +
+        opt(2, cestaCfg.op2Nome + ' — ' + fmtMoney(cestaCfg.op2Preco)) +
+      '</select>' +
+      (c.opcao ? '<label class="chk" style="gap:4px;">Qtd <input type="number" min="1" value="' + c.qtd + '" style="width:56px;" onchange="setCestaCampo(\'' + kEnc + '\',\'qtd\',this.value)"></label>' +
+        '<label class="chk" style="gap:4px;">Horário <input type="time" value="' + c.horario + '" onchange="setCestaCampo(\'' + kEnc + '\',\'horario\',this.value)"></label>' +
+        '<label class="chk" style="gap:4px;"><input type="checkbox"' + (c.pago ? ' checked' : '') + ' onchange="toggleCestaPago(\'' + kEnc + '\', this.checked)"> paga</label>' : '') +
+      '</div>';
+  }
+  if(c.opcao){
+    html += '<div class="summary-bar" style="margin:8px 0 0;">' +
+      '<span>Cesta: <b>' + c.nome + (c.qtd > 1 ? ' ×' + c.qtd : '') + '</b></span>' +
+      '<span>Total cesta: <b>' + fmtMoney(c.total) + '</b></span>' +
+      '<span>Status: ' + statusBadge + '</span>' +
+      (c.fonte ? '<span style="color:#8a7d6f;font-size:11px;">origem: ' + c.fonte + '</span>' : '') +
+      '</div>' +
+      '<p class="empty" style="font-size:11px;margin:6px 0 0;">Pagamento <b>direto ao fornecedor</b>. Use os botões para avisar o fornecedor e enviar o PIX ao hóspede.</p>' +
+      '<div class="frigobar-add" style="gap:8px;margin-top:6px;">' +
+        '<button class="secondary mini" onclick="avisarFornecedorCesta(\'' + kEnc + '\')">📲 Avisar fornecedor</button>' +
+        '<button class="secondary mini" onclick="enviarPixCestaHospede(\'' + kEnc + '\')">💳 Enviar PIX ao hóspede</button>' +
+      '</div>';
+  } else {
+    html += '<p class="empty" style="font-size:12px;margin:4px 0 0;">' + statusBadge + '. Marque a tag no FazReservas (' + cestaCfg.op1Tag + '/' + cestaCfg.op2Tag + ') ou selecione acima.</p>';
+  }
+  return html;
+}
 function financeiroReservaHtml(res){
   if(!res || !podeVerPagamento()) return '';
   const valor = Number(res.valor) || 0;
@@ -3747,6 +3928,7 @@ function renderDetailsBody(){
   ` : '';
   box.innerHTML = `
     ${financeiroReservaHtml(res)}
+    ${cestaReservaHtml(res)}
     <label for="obsText">Observações (toalhas, itens de arrumação, pedidos especiais...) ${syncNote}</label>
     <textarea id="obsText" class="obs-textarea" placeholder="Ex.: levar 4 toalhas extras, berço solicitado, cuidado com o vaso quebrado no quarto...">${obsValue}</textarea>
     <hr>
