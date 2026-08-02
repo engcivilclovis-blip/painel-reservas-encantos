@@ -3727,9 +3727,12 @@ function cestaDaReserva_(res){
   });
   const comCesta = itens.filter(function(i){ return i.opcao; });
   const total = comCesta.reduce(function(s, i){ return s + i.preco; }, 0);
-  const pedidaTexto = cestaTagTexto_(res);   // qualquer tag com a palavra "cesta"
+  const tagTxt = cestaTagTexto_(res);          // tag do FazReservas com a palavra "cesta"
+  const pedidaManual = !!c.pedidaManual;       // marcado à mão no painel
+  const pedida = !!tagTxt || pedidaManual;
+  const pedidaTexto = tagTxt || (pedidaManual ? 'marcada no painel' : '');
   return { itens, comCesta, total, qtd: comCesta.length, horario: c.horario || '', pago: !!c.pago, manual, tagOp,
-           pedida: !!pedidaTexto, pedidaTexto: pedidaTexto,
+           pedida, pedidaTexto, pedidaManual,
            fonte: manual ? 'manual' : (tagOp ? 'tag do FazReservas' : '') };
 }
 // Retorna o texto da etiqueta quando ela menciona "cesta" (pedido vindo do FazReservas),
@@ -3807,6 +3810,12 @@ function toggleCestaPago(kEnc, checked){
   if(!isOperador()) return;
   const k = decodeURIComponent(kEnc), o = _cestaObj(k);
   o.pago = !!checked;
+  salvarCestas_(); renderDetailsBody();
+}
+function toggleCestaPedida(kEnc, checked){
+  if(!isOperador()) return;
+  const k = decodeURIComponent(kEnc), o = _cestaObj(k);
+  o.pedidaManual = !!checked;
   salvarCestas_(); renderDetailsBody();
 }
 function _ddmm(iso){ const p = String(iso).split('-'); return p[2] + '/' + p[1]; }
@@ -3890,6 +3899,7 @@ function cestaReservaHtml(res){
         '<option value="1">' + cestaCfg.op1Nome + '</option>' +
         '<option value="2">' + cestaCfg.op2Nome + '</option>' +
       '</select>' +
+      '<label class="chk" style="gap:4px;"><input type="checkbox"' + (c.pedida ? ' checked' : '') + ' onchange="toggleCestaPedida(\'' + kEnc + '\',this.checked)"> cesta pedida</label>' +
       '<label class="chk" style="gap:4px;">Horário <input type="time" value="' + c.horario + '" onchange="setCestaCampo(\'' + kEnc + '\',\'horario\',this.value)"></label>' +
       '<label class="chk" style="gap:4px;"><input type="checkbox"' + (c.pago ? ' checked' : '') + ' onchange="toggleCestaPago(\'' + kEnc + '\',this.checked)"> paga</label>' +
     '</div>' +
