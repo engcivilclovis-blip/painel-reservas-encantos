@@ -2832,10 +2832,7 @@ function aplicarReservas_(list, persistTexto, sourceLabel){
     localStorage.setItem(LS_CSV_TIME_KEY, new Date().toISOString());
   }
   updateStatusMsg(sourceLabel);
-  if(reservations.length){
-    const firstDate = reservations.map(r=>r.checkin||r.checkout).filter(Boolean).sort((a,b)=>a-b)[0];
-    if(firstDate) weekStart = mondayOf(firstDate);
-  }
+  weekStart = mondayOf(new Date());   // abre sempre na semana ATUAL (evita cair em meses antigos)
   render();
   renderHoje();
 }
@@ -3240,6 +3237,10 @@ function cardCheckinHtml(res, tipo){
   const noites = Number(res.noites) || 0;
   const pessoas = pessoasTexto_(res);
   const obs = apiAvailable() ? (obsCache[key] || '') : (getDetail(key).obs || '');
+  const cst = cestaDaReserva_(res);
+  let cestaLinha = '';
+  if(cst.pedida && !cst.qtd) cestaLinha = '<div class="chk-linha" style="color:#b45309;font-weight:700;">☕ CESTA PEDIDA — configurar (' + cst.pedidaTexto + ')</div>';
+  else if(cst.qtd) cestaLinha = '<div class="chk-linha">☕ Cesta: <b>' + cst.qtd + ' manhã(s)</b> · ' + fmtMoney(cst.total) + (cst.pago ? ' · ✅ paga' : ' · ⚠️ a pagar') + '</div>';
   // Financeiro: SOMENTE administrador
   let fin = '';
   if(podeVerPagamento()){
@@ -3260,6 +3261,7 @@ function cardCheckinHtml(res, tipo){
       (res.checkout?res.checkout.toLocaleDateString('pt-BR'):'?') + (noites?' · <span class="chk-forte">'+noites+(noites===1?' noite':' noites')+'</span>':'') + '</div>' +
     (pessoas ? '<div class="chk-linha">👥 ' + pessoas + '</div>' : '') +
     (tel ? '<div class="chk-linha">📱 ' + tel + '</div>' : '<div class="chk-linha" style="color:#8a7d6f;">📱 sem telefone no relatório</div>') +
+    cestaLinha +
     fin +
     (obs ? '<div class="chk-obs">📝 ' + obs + '</div>' : '') +
     '<div class="chk-acoes">' +
@@ -3725,7 +3727,16 @@ function cestaDaReserva_(res){
   });
   const comCesta = itens.filter(function(i){ return i.opcao; });
   const total = comCesta.reduce(function(s, i){ return s + i.preco; }, 0);
-  return { itens, comCesta, total, qtd: comCesta.length, horario: c.horario || '', pago: !!c.pago, manual, tagOp, fonte: manual ? 'manual' : (tagOp ? 'tag do FazReservas' : '') };
+  const pedidaTexto = cestaTagTexto_(res);   // qualquer tag com a palavra "cesta"
+  return { itens, comCesta, total, qtd: comCesta.length, horario: c.horario || '', pago: !!c.pago, manual, tagOp,
+           pedida: !!pedidaTexto, pedidaTexto: pedidaTexto,
+           fonte: manual ? 'manual' : (tagOp ? 'tag do FazReservas' : '') };
+}
+// Retorna o texto da etiqueta quando ela menciona "cesta" (pedido vindo do FazReservas),
+// mesmo que não seja exatamente cesta1/cesta2 (ex.: "cesta duas diarias").
+function cestaTagTexto_(res){
+  const raw = (res && res.tag) || '';
+  return norm(raw).indexOf('cesta') > -1 ? String(raw).trim() : '';
 }
 function salvarCestas_(){
   const p = JSON.stringify(cestas);
@@ -3865,6 +3876,11 @@ function cestaReservaHtml(res){
       '<option value="2"' + (cur === 2 ? ' selected' : '') + '>' + cestaCfg.op2Nome + ' (' + fmtMoney(cestaCfg.op2Preco) + ')</option>' +
     '</select>';
   let html = '<hr><label>☕ Café da manhã (cesta) — por dia</label>';
+  if(c.pedida){
+    html += !c.qtd
+      ? '<div style="background:#fff3cd;border:1px solid #ffe08a;border-radius:8px;padding:8px 10px;margin:4px 0 8px;font-size:13px;"><b>⚠️ CESTA PEDIDA</b> no FazReservas: “' + c.pedidaTexto + '”. <b>Ainda não configurada</b> — escolha os dias e a opção abaixo.</div>'
+      : '<div style="background:#e8f5ee;border:1px solid #bfe3cd;border-radius:8px;padding:8px 10px;margin:4px 0 8px;font-size:13px;">☕ Pedido do FazReservas: “' + c.pedidaTexto + '” — configurada (' + c.qtd + ' manhã(s)).</div>';
+  }
   if(isOperador()){
     html += '<div class="frigobar-add" style="flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;">' +
       '<span style="font-size:12px;color:#8a7d6f;">Aplicar em todas:</span>' +
