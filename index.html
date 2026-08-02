@@ -2861,7 +2861,10 @@ function reservasParaCsv_(list){
   });
   return linhas.join('\n');
 }
-function mesclarReservas_(base, novas){
+// campos = quais campos atualizar numa reserva já existente. Padrão (e-mail/PDF):
+// só status/valor/saldo. Na importação de CSV curado, passamos a lista completa.
+function mesclarReservas_(base, novas, campos){
+  campos = campos || ['status','valor','saldo'];
   const porChave = {};
   const lista = (base||[]).map(function(r){ porChave[chaveReserva_(r)] = r; return r; });
   let novos = 0, atualizados = 0;
@@ -2869,7 +2872,7 @@ function mesclarReservas_(base, novas){
     const c = chaveReserva_(n), ex = porChave[c];
     if(!ex){ lista.push(n); porChave[c] = n; novos++; return; }
     let mudou = false;
-    ['status','valor','saldo'].forEach(function(campo){
+    campos.forEach(function(campo){
       if(n[campo] != null && n[campo] !== '' && n[campo] !== ex[campo]){ ex[campo] = n[campo]; mudou = true; }
     });
     if(mudou) atualizados++;
@@ -2979,9 +2982,16 @@ document.getElementById('fileInput').addEventListener('change', function(e){
   if(!file) return;
   const reader = new FileReader();
   reader.onload = ev => {
-    loadCSVText(ev.target.result);
-    baseCsv = reservasParaCsv_(reservations);       // canonicaliza e vira a base curada
+    const novas = csvParaReservas_(ev.target.result);
+    if(!novas || !novas.length){ alert('Não consegui identificar reservas nesse arquivo.'); return; }
+    // MESCLA na base existente: mantém tudo, atualiza o que mudou, acrescenta o novo.
+    const base = baseCsv ? (csvParaReservas_(baseCsv) || []) : [];
+    const campos = ['status','valor','saldo','tag','acomodacao','unidade','nome','telefone','email','adultos','criancas','referencia','platform','numero','propriedade'];
+    const r = mesclarReservas_(base, novas, campos);
+    baseCsv = reservasParaCsv_(r.lista);
+    aplicarReservas_(r.lista, baseCsv, 'importação (base mantida)');
     sincronizarImportacaoManual(baseCsv);
+    alert('Importação concluída:\n• ' + r.novos + ' reserva(s) nova(s)\n• ' + r.atualizados + ' atualizada(s)\n• Total na base: ' + r.lista.length + '\n\nAs reservas que já existiam e não estavam no arquivo foram MANTIDAS.');
   };
   reader.readAsText(file, 'UTF-8');
 });
