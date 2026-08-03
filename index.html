@@ -688,8 +688,62 @@
   </div>
   <div id="admResumo"></div>
   <div id="admLista"></div>
+
+  <div class="toolbar" style="margin-top:16px;">
+    <div class="toolbar-row" style="justify-content:space-between;align-items:center;margin-bottom:0;">
+      <strong>✅ Tarefas / pendências</strong>
+      <span>
+        <button class="secondary" onclick="abrirContatosModal()">👥 Contatos</button>
+        <button onclick="abrirTarefaModal()" style="background:var(--brand-terra);color:#fff;">➕ Nova tarefa</button>
+      </span>
+    </div>
+  </div>
+  <div id="admTarefasLista"></div>
 </div>
 
+  </div>
+</div>
+
+<div class="modal-overlay" id="tarefaModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2 id="tarefaModalTitulo">Nova tarefa</h2>
+      <button class="secondary" onclick="closeTarefaModal()">Fechar</button>
+    </div>
+    <input type="hidden" id="tarId">
+    <label for="tarTitulo">O que precisa ser feito</label>
+    <input type="text" id="tarTitulo" placeholder="Ex.: Pagar energia, comprar enxovais, ligar p/ contador..." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;">
+      <label class="chk" style="gap:4px;">Prazo <input type="date" id="tarPrazo"></label>
+      <label class="chk" style="gap:4px;">Responsável
+        <select id="tarResp"><option value="">—</option></select>
+      </label>
+    </div>
+    <label class="chk" style="gap:6px;margin-top:10px;"><input type="checkbox" id="tarEnviar"> Enviar no WhatsApp ao salvar</label>
+    <div class="frigobar-add" style="gap:8px;margin-top:4px;">
+      <label class="chk" style="gap:4px;">Enviar para
+        <select id="tarEnviarPara"><option value="">(escolha um contato)</option></select>
+      </label>
+    </div>
+    <div style="margin-top:12px;"><button onclick="salvarTarefa()">Salvar</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="contatosModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>👥 Contatos (WhatsApp)</h2>
+      <button class="secondary" onclick="closeContatosModal()">Fechar</button>
+    </div>
+    <p style="font-size:13px;color:#5a5049;">Contatos para enviar demandas administrativas por WhatsApp.</p>
+    <div id="contatosLista"></div>
+    <hr style="margin:12px 0;">
+    <label>Adicionar contato</label>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;">
+      <input type="text" id="contNome" placeholder="Nome" style="width:150px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <input type="text" id="contFone" placeholder="+55 49 99999-9999" style="width:180px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <button onclick="addContato()">Adicionar</button>
+    </div>
   </div>
 </div>
 
@@ -1149,6 +1203,10 @@ let cestaCfg = { op1Nome:'Cesta 1', op1Preco:120, op1Tag:'cesta1', op2Nome:'Cest
 let cestas = {};
 // Contas a pagar (módulo Admin, só administrador). [{id,descricao,categoria,tipo,valor,vencimento,banco,status,dataPagamento,obs,removida}]
 let despesas = [];
+// Contatos administrativos (para enviar demandas por WhatsApp). [{id,nome,fone}]
+let contatosAdm = [];
+// Tarefas/pendências administrativas. [{id,titulo,prazo,responsavel,status,em,removida}]
+let tarefasAdm = [];
 let faxinaDetailsLocal = {};
 try { faxinaDetailsLocal = JSON.parse(localStorage.getItem('painelFaxinas') || '{}'); } catch(e){ faxinaDetailsLocal = {}; }
 function saveFaxinasLocal(){ localStorage.setItem('painelFaxinas', JSON.stringify(faxinaDetailsLocal)); }
@@ -1273,6 +1331,8 @@ function refreshFrigobarCache(){
         if(config.cestaCfg){ try { cestaCfg = Object.assign(cestaCfg, JSON.parse(config.cestaCfg) || {}); } catch(e){} }
         if(config.cestas){ try { cestas = JSON.parse(config.cestas) || {}; } catch(e){} }
         if(config.despesas){ try { despesas = JSON.parse(config.despesas) || []; } catch(e){} }
+        if(config.contatosAdm){ try { contatosAdm = JSON.parse(config.contatosAdm) || []; } catch(e){} }
+        if(config.tarefasAdm){ try { tarefasAdm = JSON.parse(config.tarefasAdm) || []; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
         protecaoAtiva = !!config.apiSecretSet;
@@ -3465,6 +3525,7 @@ function repetirDespesa(id){
 }
 function renderAdmin(){
   if(!isAdmin) return;
+  renderAdminTarefas();
   const mesEl = document.getElementById('admMes'); if(mesEl && !mesEl.value) mesEl.value = admMesRef_();
   const mes = admMesRef_();
   const filtro = (document.getElementById('admFiltro') || {}).value || 'todos';
@@ -3500,6 +3561,95 @@ function renderAdmin(){
           '<button class="mini secondary" onclick="abrirDespesaModal(\'' + d.id + '\')">✏️</button>' +
           '<button class="mini secondary" onclick="repetirDespesa(\'' + d.id + '\')" title="repetir no próximo mês">🔁</button>' +
           '<button class="mini secondary" onclick="removerDespesa(\'' + d.id + '\')">🗑️</button>' +
+        '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+// --- Contatos administrativos ---
+function salvarContatos_(){ const p = JSON.stringify(contatosAdm); if(apiAvailable()) apiSalvarConfig('contatosAdm', p).catch(()=>{}); try { localStorage.setItem('painelContatosAdm', p); } catch(e){} }
+function abrirContatosModal(){ if(!isAdmin) return; renderContatos(); document.getElementById('contatosModal').style.display = 'flex'; }
+function closeContatosModal(){ document.getElementById('contatosModal').style.display = 'none'; }
+function renderContatos(){
+  const box = document.getElementById('contatosLista');
+  box.innerHTML = contatosAdm.length ? ('<table class="fb-table"><tbody>' + contatosAdm.map(function(c){
+    return '<tr><td><b>' + c.nome + '</b></td><td>' + c.fone + '</td>' +
+      '<td><a class="mini zap" href="' + linkWhatsApp_(c.fone) + '" target="_blank" rel="noopener" style="padding:4px 8px;border-radius:6px;">💬</a> ' +
+      '<button class="mini secondary" onclick="removerContato(\'' + c.id + '\')">🗑️</button></td></tr>';
+  }).join('') + '</tbody></table>') : '<p class="empty">Nenhum contato ainda.</p>';
+}
+function addContato(){
+  if(!isAdmin) return;
+  const nome = document.getElementById('contNome').value.trim();
+  const fone = document.getElementById('contFone').value.trim();
+  if(!nome || !fone){ alert('Preencha nome e telefone.'); return; }
+  contatosAdm.push({ id: 'c' + Date.now() + Math.floor(Math.random()*1000), nome: nome, fone: fone });
+  salvarContatos_();
+  document.getElementById('contNome').value = ''; document.getElementById('contFone').value = '';
+  renderContatos();
+}
+function removerContato(id){ if(!isAdmin) return; contatosAdm = contatosAdm.filter(function(c){ return c.id !== id; }); salvarContatos_(); renderContatos(); }
+function opcoesContatos_(){ return '<option value="">(escolha um contato)</option>' + contatosAdm.map(function(c){ return '<option value="' + c.fone + '">' + c.nome + '</option>'; }).join(''); }
+
+// --- Tarefas / pendências ---
+function salvarTarefas_(){ const p = JSON.stringify(tarefasAdm); if(apiAvailable()) apiSalvarConfig('tarefasAdm', p).catch(()=>{}); try { localStorage.setItem('painelTarefasAdm', p); } catch(e){} }
+function _tarMsg(t){ return '📋 Tarefa — Encantos de Altitude:\n• ' + t.titulo + (t.prazo ? '\n• Prazo: ' + _ddmm(t.prazo) : ''); }
+function abrirTarefaModal(id){
+  if(!isAdmin) return;
+  const t = id ? tarefasAdm.find(function(x){ return x.id === id; }) : null;
+  document.getElementById('tarefaModalTitulo').textContent = t ? 'Editar tarefa' : 'Nova tarefa';
+  document.getElementById('tarId').value = t ? t.id : '';
+  document.getElementById('tarTitulo').value = t ? (t.titulo||'') : '';
+  document.getElementById('tarPrazo').value = t ? (t.prazo||'') : '';
+  document.getElementById('tarResp').innerHTML = '<option value="">—</option>' + contatosAdm.map(function(c){ return '<option value="' + c.nome + '"' + (t && t.responsavel === c.nome ? ' selected' : '') + '>' + c.nome + '</option>'; }).join('');
+  document.getElementById('tarEnviarPara').innerHTML = opcoesContatos_();
+  document.getElementById('tarEnviar').checked = false;
+  document.getElementById('tarefaModal').style.display = 'flex';
+}
+function closeTarefaModal(){ document.getElementById('tarefaModal').style.display = 'none'; }
+function salvarTarefa(){
+  if(!isAdmin) return;
+  const id = document.getElementById('tarId').value;
+  const titulo = document.getElementById('tarTitulo').value.trim();
+  if(!titulo){ alert('Descreva a tarefa.'); return; }
+  const dados = { titulo: titulo, prazo: document.getElementById('tarPrazo').value, responsavel: document.getElementById('tarResp').value };
+  let alvo = dados;
+  if(id){ const t = tarefasAdm.find(function(x){ return x.id === id; }); if(t){ Object.assign(t, dados); alvo = t; } }
+  else { dados.id = 't' + Date.now() + Math.floor(Math.random()*1000); dados.status = 'pendente'; dados.em = new Date().toLocaleDateString('pt-BR'); tarefasAdm.push(dados); }
+  salvarTarefas_();
+  if(document.getElementById('tarEnviar').checked){
+    const fone = document.getElementById('tarEnviarPara').value;
+    if(fone) window.open(linkWhatsApp_(fone) + '?text=' + encodeURIComponent(_tarMsg(alvo)), '_blank');
+    else alert('Escolha um contato em "Enviar para" (ou desmarque o envio).');
+  }
+  closeTarefaModal(); renderAdminTarefas();
+}
+function toggleTarefa(id){ if(!isAdmin) return; const t = tarefasAdm.find(function(x){ return x.id === id; }); if(!t) return; t.status = (t.status === 'feito') ? 'pendente' : 'feito'; salvarTarefas_(); renderAdminTarefas(); }
+function removerTarefa(id){ if(!isAdmin) return; const t = tarefasAdm.find(function(x){ return x.id === id; }); if(!t) return; if(!confirm('Remover a tarefa "' + t.titulo + '"?')) return; t.removida = true; salvarTarefas_(); renderAdminTarefas(); }
+function enviarTarefaWhats(id){
+  const t = tarefasAdm.find(function(x){ return x.id === id; }); if(!t) return;
+  if(!contatosAdm.length){ alert('Cadastre um contato primeiro (botão 👥 Contatos).'); return; }
+  const nomes = contatosAdm.map(function(c, i){ return (i+1) + ') ' + c.nome; }).join('\n');
+  const esc = prompt('Enviar "' + t.titulo + '" para qual contato?\n' + nomes + '\n\nDigite o número:');
+  if(esc === null) return;
+  const i = parseInt(esc, 10) - 1;
+  if(isNaN(i) || !contatosAdm[i]){ alert('Contato inválido.'); return; }
+  window.open(linkWhatsApp_(contatosAdm[i].fone) + '?text=' + encodeURIComponent(_tarMsg(t)), '_blank');
+}
+function renderAdminTarefas(){
+  const box = document.getElementById('admTarefasLista'); if(!box) return;
+  const lista = tarefasAdm.filter(function(t){ return !t.removida; });
+  lista.sort(function(a,b){ const fa = a.status==='feito'?1:0, fb = b.status==='feito'?1:0; if(fa!==fb) return fa - fb; return (a.prazo||'').localeCompare(b.prazo||''); });
+  if(!lista.length){ box.innerHTML = '<p class="empty">Nenhuma tarefa. Toque em ➕ Nova tarefa.</p>'; return; }
+  const _dm = function(iso){ const p = String(iso).split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; };
+  box.innerHTML = '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr><th></th><th>Tarefa</th><th>Prazo</th><th>Responsável</th><th>Ações</th></tr></thead><tbody>' +
+    lista.map(function(t){
+      const feito = t.status === 'feito';
+      return '<tr' + (feito ? ' style="opacity:.6;"' : '') + '><td style="text-align:center;"><input type="checkbox"' + (feito ? ' checked' : '') + ' onchange="toggleTarefa(\'' + t.id + '\')"></td>' +
+        '<td' + (feito ? ' style="text-decoration:line-through;"' : '') + '>' + t.titulo + '</td>' +
+        '<td>' + (t.prazo ? _dm(t.prazo) : '') + '</td><td>' + (t.responsavel||'') + '</td>' +
+        '<td class="concil-acoes">' +
+          '<button class="mini secondary" onclick="enviarTarefaWhats(\'' + t.id + '\')" title="enviar no WhatsApp">📲</button>' +
+          '<button class="mini secondary" onclick="abrirTarefaModal(\'' + t.id + '\')">✏️</button>' +
+          '<button class="mini secondary" onclick="removerTarefa(\'' + t.id + '\')">🗑️</button>' +
         '</td></tr>';
     }).join('') + '</tbody></table></div>';
 }
