@@ -2778,7 +2778,8 @@ const HEADER_MAP = {
   referencia: ['referencia','source','fonte de referencia'],
   pagamentos: ['pagamentos','payments'],
   saldo: ['saldo','balance'],
-  valor: ['valor','total','value']
+  valor: ['valor','total','value'],
+  notareserva: ['grupo','group','comentarios','comentario','comments','observacoes','observacao','notas','nota','notes','mensagem','message']
 };
 function buildIndex(headerRow){
   const idx = {};
@@ -2808,6 +2809,7 @@ function csvParaReservas_(text){
       numero: get('numero'),
       status: get('status'),
       tag: get('tag'),
+      notaReserva: get('notareserva'),
       propriedade: get('propriedade'),
       acomodacao: get('acomodacao') || get('unidade'),
       unidade: get('unidade'),
@@ -2851,10 +2853,10 @@ function isoData_(d){ return d ? (d.getFullYear()+'-'+('0'+(d.getMonth()+1)).sli
 function chaveReserva_(r){ return norm(r.nome||'') + '|' + isoData_(r.checkin) + '|' + isoData_(r.checkout); }
 function csvEscapar_(v){ v = (v==null?'':String(v)); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 function reservasParaCsv_(list){
-  const H = ['numero','status','tag','propriedade','acomodacao','unidade','checkin','checkout','noites','nome','email','telefone','adultos','criancas','referencia','saldo','valor'];
+  const H = ['numero','status','tag','grupo','propriedade','acomodacao','unidade','checkin','checkout','noites','nome','email','telefone','adultos','criancas','referencia','saldo','valor'];
   const linhas = [H.join(',')];
   (list||[]).forEach(function(r){
-    linhas.push([r.numero||'', r.status||'', r.tag||'', r.propriedade||'', r.acomodacao||'', r.unidade||'',
+    linhas.push([r.numero||'', r.status||'', r.tag||'', r.notaReserva||'', r.propriedade||'', r.acomodacao||'', r.unidade||'',
       isoData_(r.checkin), isoData_(r.checkout), noitesReserva_(r), r.nome||'', r.email||'', r.telefone||'',
       (r.adultos||''), (r.criancas||''), r.referencia||'',
       (r.saldo!=null?r.saldo:''), (r.valor!=null?r.valor:'')].map(csvEscapar_).join(','));
@@ -3250,7 +3252,7 @@ function cardCheckinHtml(res, tipo){
   const cst = cestaDaReserva_(res);
   let cestaLinha = '';
   if(cst.pedida && !cst.qtd) cestaLinha = '<div class="chk-linha" style="color:#b45309;font-weight:700;">☕ CESTA PEDIDA — configurar (' + cst.pedidaTexto + ')</div>';
-  else if(cst.qtd) cestaLinha = '<div class="chk-linha">☕ Cesta: <b>' + cst.qtd + ' manhã(s)</b> · ' + fmtMoney(cst.total) + ' · fornecedor ' + (cst.avisado ? '✅' : '⏳ a pedir') + ' · pgto ' + (cst.pago ? '✅' : '⚠️ a pagar') + '</div>';
+  else if(cst.qtd) cestaLinha = '<div class="chk-linha">☕ Cesta: <b>' + cst.qtd + ' manhã(s)</b> · ' + fmtMoney(cst.total) + ' · pedidos ' + (cst.avisado ? '✅' : cst.avQtd + '/' + cst.qtd) + ' · pagos ' + (cst.pago ? '✅' : cst.pgQtd + '/' + cst.qtd) + '</div>';
   // Financeiro: SOMENTE administrador
   let fin = '';
   if(podeVerPagamento()){
@@ -3703,8 +3705,9 @@ function frigobarDaReserva(res){
 }
 
 // ---------- Cesta de café da manhã (conciliada com a tag do FazReservas) ----------
+function cestaTextoFonte_(res){ return norm(((res && res.tag) || '') + ' ' + ((res && res.notaReserva) || '')); }
 function cestaAutoDaTag_(res){
-  const t = norm((res && res.tag) || '');
+  const t = cestaTextoFonte_(res);
   if(!t) return 0;
   const t2 = norm(cestaCfg.op2Tag || ''), t1 = norm(cestaCfg.op1Tag || '');
   if(t2 && t.indexOf(t2) > -1) return 2;
@@ -3731,26 +3734,33 @@ function cestaDaReserva_(res){
   const datas = cestaDatasReserva_(res);
   const tagOp = cestaAutoDaTag_(res);
   const manual = !!(c.manual && c.dias);
+  const st = c.diasSt || {};                    // status por manhã: {av, pg}
   const itens = datas.map(function(dt){
     const op = manual ? (Number(c.dias[dt]) || 0) : tagOp;
-    return { data: dt, opcao: op, nome: cestaNomeOpcao_(op), preco: cestaPrecoOpcao_(op) };
+    const s = st[dt] || {};
+    return { data: dt, opcao: op, nome: cestaNomeOpcao_(op), preco: cestaPrecoOpcao_(op), av: !!s.av, pg: !!s.pg };
   });
   const comCesta = itens.filter(function(i){ return i.opcao; });
   const total = comCesta.reduce(function(s, i){ return s + i.preco; }, 0);
-  const tagTxt = cestaTagTexto_(res);          // tag do FazReservas com a palavra "cesta"
+  const avQtd = comCesta.filter(function(i){ return i.av; }).length;
+  const pgQtd = comCesta.filter(function(i){ return i.pg; }).length;
+  const tagTxt = cestaTagTexto_(res);          // tag/nota do FazReservas com a palavra "cesta"
   const pedidaManual = !!c.pedidaManual;       // marcado à mão no painel
   const pedida = !!tagTxt || pedidaManual;
   const pedidaTexto = tagTxt || (pedidaManual ? 'marcada no painel' : '');
-  return { itens, comCesta, total, qtd: comCesta.length, horario: c.horario || '', pago: !!c.pago,
-           avisado: !!c.avisado, avisadoEm: c.avisadoEm || '', manual, tagOp,
-           pedida, pedidaTexto, pedidaManual,
+  return { itens, comCesta, total, qtd: comCesta.length, horario: c.horario || '', avQtd, pgQtd,
+           avisado: comCesta.length > 0 && avQtd === comCesta.length,
+           pago: comCesta.length > 0 && pgQtd === comCesta.length,
+           manual, tagOp, pedida, pedidaTexto, pedidaManual,
            fonte: manual ? 'manual' : (tagOp ? 'tag do FazReservas' : '') };
 }
 // Retorna o texto da etiqueta quando ela menciona "cesta" (pedido vindo do FazReservas),
 // mesmo que não seja exatamente cesta1/cesta2 (ex.: "cesta duas diarias").
 function cestaTagTexto_(res){
-  const raw = (res && res.tag) || '';
-  return norm(raw).indexOf('cesta') > -1 ? String(raw).trim() : '';
+  const tag = (res && res.tag) || '', nota = (res && res.notaReserva) || '';
+  if(norm(tag).indexOf('cesta') > -1) return String(tag).trim();
+  if(norm(nota).indexOf('cesta') > -1) return String(nota).trim();
+  return '';
 }
 function salvarCestas_(){
   const p = JSON.stringify(cestas);
@@ -3836,6 +3846,16 @@ function toggleCestaAvisado(kEnc, checked){
   o.avisadoEm = checked ? new Date().toLocaleString('pt-BR') : '';
   salvarCestas_(); renderDetailsBody();
 }
+// Status POR DIA da cesta: {av: pedido ao fornecedor, pg: cliente pagou}
+function _cestaSt(k, dt){ const o = _cestaObj(k); if(!o.diasSt) o.diasSt = {}; if(!o.diasSt[dt]) o.diasSt[dt] = {}; return o.diasSt[dt]; }
+function toggleDiaAv(kEnc, dt, checked){ if(!isOperador()) return; _cestaSt(decodeURIComponent(kEnc), dt).av = !!checked; salvarCestas_(); renderDetailsBody(); }
+function toggleDiaPg(kEnc, dt, checked){ if(!isOperador()) return; _cestaSt(decodeURIComponent(kEnc), dt).pg = !!checked; salvarCestas_(); renderDetailsBody(); }
+function marcarTodosDias(kEnc, campo, val){
+  if(!isOperador()) return;
+  const k = decodeURIComponent(kEnc), res = reservations.find(r => resKey(r) === k);
+  cestaDaReserva_(res).comCesta.forEach(function(i){ _cestaSt(k, i.data)[campo] = !!val; });
+  salvarCestas_(); renderDetailsBody();
+}
 function _ddmm(iso){ const p = String(iso).split('-'); return p[2] + '/' + p[1]; }
 function avisarFornecedorCesta(kEnc){
   const res = reservations.find(r => resKey(r) === decodeURIComponent(kEnc)); if(!res) return;
@@ -3849,7 +3869,8 @@ function avisarFornecedorCesta(kEnc){
     '⏰ Horário desejado: ' + (c.horario || 'a combinar') + '\n' +
     '🧺 Cestas (' + c.qtd + '):\n' + linhas;
   window.open(linkWhatsApp_(cestaCfg.fornFone) + '?text=' + encodeURIComponent(msg), '_blank');
-  const o = _cestaObj(decodeURIComponent(kEnc)); o.avisado = true; o.avisadoEm = new Date().toLocaleString('pt-BR');
+  const k = decodeURIComponent(kEnc);
+  c.comCesta.forEach(function(i){ _cestaSt(k, i.data).av = true; });   // marca o pedido de cada dia enviado
   salvarCestas_(); if(currentDetailKey) renderDetailsBody();
 }
 function enviarPixCestaHospede(kEnc){
@@ -3921,15 +3942,23 @@ function cestaReservaHtml(res){
       '</select>' +
       '<label class="chk" style="gap:4px;"><input type="checkbox"' + (c.pedida ? ' checked' : '') + ' onchange="toggleCestaPedida(\'' + kEnc + '\',this.checked)"> cesta pedida</label>' +
       '<label class="chk" style="gap:4px;">Horário <input type="time" value="' + c.horario + '" onchange="setCestaCampo(\'' + kEnc + '\',\'horario\',this.value)"></label>' +
-      '<label class="chk" style="gap:4px;"><input type="checkbox"' + (c.avisado ? ' checked' : '') + ' onchange="toggleCestaAvisado(\'' + kEnc + '\',this.checked)"> pedido ao fornecedor</label>' +
-      '<label class="chk" style="gap:4px;"><input type="checkbox"' + (c.pago ? ' checked' : '') + ' onchange="toggleCestaPago(\'' + kEnc + '\',this.checked)"> cliente pagou</label>' +
     '</div>' +
-    '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr><th>Manhã</th><th>Cesta</th><th>Valor</th></tr></thead><tbody>' +
-      c.itens.map(function(i){ return '<tr><td>' + _ddmm(i.data) + '</td><td>' + optDia(i.data, i.opcao) + '</td><td>' + (i.opcao ? fmtMoney(i.preco) : '—') + '</td></tr>'; }).join('') +
-      '</tbody></table></div>';
+    '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr><th>Manhã</th><th>Cesta</th><th>Valor</th><th>Pedido feito</th><th>Cliente pagou</th></tr></thead><tbody>' +
+      c.itens.map(function(i){
+        const chk = i.opcao
+          ? '<td style="text-align:center;"><input type="checkbox"' + (i.av ? ' checked' : '') + ' onchange="toggleDiaAv(\'' + kEnc + '\',\'' + i.data + '\',this.checked)"></td>' +
+            '<td style="text-align:center;"><input type="checkbox"' + (i.pg ? ' checked' : '') + ' onchange="toggleDiaPg(\'' + kEnc + '\',\'' + i.data + '\',this.checked)"></td>'
+          : '<td style="text-align:center;color:#ccc;">—</td><td style="text-align:center;color:#ccc;">—</td>';
+        return '<tr><td>' + _ddmm(i.data) + '</td><td>' + optDia(i.data, i.opcao) + '</td><td>' + (i.opcao ? fmtMoney(i.preco) : '—') + '</td>' + chk + '</tr>';
+      }).join('') +
+      '</tbody></table>' +
+      (c.qtd ? '<div style="margin-top:4px;">' +
+        '<button class="mini secondary" onclick="marcarTodosDias(\'' + kEnc + '\',\'av\',true)">✔ marcar todos pedidos</button> ' +
+        '<button class="mini secondary" onclick="marcarTodosDias(\'' + kEnc + '\',\'pg\',true)">✔ marcar todos pagos</button></div>' : '') +
+      '</div>';
   }
-  const forneBadge = c.avisado ? '<span style="color:#1b7a3d;font-weight:600;">✅ pedido enviado' + (c.avisadoEm ? ' (' + c.avisadoEm + ')' : '') + '</span>' : '<span style="color:#b00020;font-weight:600;">⏳ a pedir ao fornecedor</span>';
-  const pagoBadge = c.pago ? '<span style="color:#1b7a3d;font-weight:600;">✅ pago</span>' : '<span style="color:#b00020;font-weight:600;">⚠️ a pagar</span>';
+  const forneBadge = c.avisado ? '<span style="color:#1b7a3d;font-weight:600;">✅ todos pedidos</span>' : '<span style="color:#b00020;font-weight:600;">⏳ ' + c.avQtd + ' de ' + c.qtd + ' pedidos</span>';
+  const pagoBadge = c.pago ? '<span style="color:#1b7a3d;font-weight:600;">✅ tudo pago</span>' : '<span style="color:#b00020;font-weight:600;">⚠️ ' + c.pgQtd + ' de ' + c.qtd + ' pagos</span>';
   html += '<div class="summary-bar" style="margin:8px 0 0;">' +
     '<span>Cestas: <b>' + c.qtd + '</b>' + (c.itens.length ? ' de ' + c.itens.length + ' manhã(s)' : '') + '</span>' +
     '<span>Total cesta: <b>' + fmtMoney(c.total) + '</b></span>' +
