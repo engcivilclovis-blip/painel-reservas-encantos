@@ -216,6 +216,7 @@
     <button class="side-btn" id="navFaxinasBtn" onclick="irModulo('faxinas')" style="display:none;">🧹 Faxinas</button>
     <button class="side-btn" id="navManutencaoBtn" onclick="irModulo('manutencao')" style="display:none;">🔧 Manutenção</button>
     <button class="side-btn" id="navFinanceiroBtn" onclick="irModulo('financeiro')" style="display:none;">💰 Financeiro</button>
+    <button class="side-btn" id="navAdminBtn" onclick="irModulo('admin')" style="display:none;">💼 Admin</button>
   </nav>
   <div class="app-main">
 
@@ -666,6 +667,58 @@
   <div id="concilTableBox"></div>
 </div>
 
+<div class="module-view" id="module-admin">
+  <div class="toolbar">
+    <div class="toolbar-row" style="justify-content:space-between;align-items:center;">
+      <strong>💼 Contas a pagar</strong>
+      <button onclick="abrirDespesaModal()" style="background:var(--brand-terra);color:#fff;">➕ Nova despesa</button>
+    </div>
+    <div class="toolbar-row" style="gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:0;">
+      <label class="chk" style="gap:6px;">Mês <input type="month" id="admMes" onchange="renderAdmin()"></label>
+      <label class="chk" style="gap:6px;">Filtro
+        <select id="admFiltro" onchange="renderAdmin()">
+          <option value="todos">Todos</option>
+          <option value="pendente">A pagar</option>
+          <option value="pago">Pagos</option>
+          <option value="fixa">Fixas</option>
+          <option value="variavel">Variáveis</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <div id="admResumo"></div>
+  <div id="admLista"></div>
+</div>
+
+  </div>
+</div>
+
+<div class="modal-overlay" id="despesaModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2 id="despesaModalTitulo">Nova despesa</h2>
+      <button class="secondary" onclick="closeDespesaModal()">Fechar</button>
+    </div>
+    <input type="hidden" id="despId">
+    <label for="despDesc">Descrição</label>
+    <input type="text" id="despDesc" placeholder="Ex.: Energia, Internet, Salário faxina..." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;">
+      <label class="chk" style="gap:4px;">Valor R$ <input type="number" id="despValor" step="0.01" style="width:110px;"></label>
+      <label class="chk" style="gap:4px;">Vencimento <input type="date" id="despVenc"></label>
+      <label class="chk" style="gap:4px;">Tipo
+        <select id="despTipo"><option value="fixa">Fixa</option><option value="variavel">Variável</option></select>
+      </label>
+    </div>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;margin-top:6px;">
+      <label class="chk" style="gap:4px;">Categoria <input type="text" id="despCat" list="admCategorias" placeholder="Ex.: Utilidades" style="width:150px;"></label>
+      <label class="chk" style="gap:4px;">Banco/conta <input type="text" id="despBanco" list="admBancos" placeholder="Ex.: Sicredi" style="width:150px;"></label>
+    </div>
+    <datalist id="admCategorias"></datalist>
+    <datalist id="admBancos"></datalist>
+    <label for="despObs" style="margin-top:8px;">Observação (opcional)</label>
+    <input type="text" id="despObs" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+    <label class="chk" style="gap:6px;"><input type="checkbox" id="despPago"> Já está pago</label>
+    <div style="margin-top:12px;"><button onclick="salvarDespesa()">Salvar</button></div>
   </div>
 </div>
 
@@ -1094,6 +1147,8 @@ let pixKey = '', pixNome = 'Encantos de Altitude', pixCidade = 'Sao Joaquim';
 let cestaCfg = { op1Nome:'Cesta 1', op1Preco:120, op1Tag:'cesta1', op2Nome:'Cesta 2', op2Preco:140, op2Tag:'cesta2', fornNome:'', fornFone:'', fornPix:'' };
 // Por reserva: {opcao:0|1|2 (0=nenhuma), manual:bool, qtd, horario, pago}. opcao ausente = usa a tag.
 let cestas = {};
+// Contas a pagar (módulo Admin, só administrador). [{id,descricao,categoria,tipo,valor,vencimento,banco,status,dataPagamento,obs,removida}]
+let despesas = [];
 let faxinaDetailsLocal = {};
 try { faxinaDetailsLocal = JSON.parse(localStorage.getItem('painelFaxinas') || '{}'); } catch(e){ faxinaDetailsLocal = {}; }
 function saveFaxinasLocal(){ localStorage.setItem('painelFaxinas', JSON.stringify(faxinaDetailsLocal)); }
@@ -1217,6 +1272,7 @@ function refreshFrigobarCache(){
         if(config.faturaFormaPgto){ try { faturaFormaPgto = JSON.parse(config.faturaFormaPgto) || {}; } catch(e){} }
         if(config.cestaCfg){ try { cestaCfg = Object.assign(cestaCfg, JSON.parse(config.cestaCfg) || {}); } catch(e){} }
         if(config.cestas){ try { cestas = JSON.parse(config.cestas) || {}; } catch(e){} }
+        if(config.despesas){ try { despesas = JSON.parse(config.despesas) || []; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
         protecaoAtiva = !!config.apiSecretSet;
@@ -2633,13 +2689,15 @@ function updateSidebarUI(){
   const podeFaxinas = isAdmin || isFaxineira;
   const podeManutencao = isAdmin || isManutColab;
   const podeFinanceiro = isAdmin;
+  const podeAdmin = isAdmin;
   const podeHoje = !isManutColab;
   document.getElementById('navHojeBtn').style.display = podeHoje ? 'block' : 'none';
   document.getElementById('navReservasBtn').style.display = podeReservas ? 'block' : 'none';
   document.getElementById('navFaxinasBtn').style.display = podeFaxinas ? 'block' : 'none';
   document.getElementById('navManutencaoBtn').style.display = podeManutencao ? 'block' : 'none';
   document.getElementById('navFinanceiroBtn').style.display = podeFinanceiro ? 'block' : 'none';
-  const permitidos = {hoje:podeHoje, reservas:podeReservas, faxinas:podeFaxinas, manutencao:podeManutencao, financeiro:podeFinanceiro};
+  document.getElementById('navAdminBtn').style.display = podeAdmin ? 'block' : 'none';
+  const permitidos = {hoje:podeHoje, reservas:podeReservas, faxinas:podeFaxinas, manutencao:podeManutencao, financeiro:podeFinanceiro, admin:podeAdmin};
   if(!permitidos[activeModulo]) irModulo(podeHoje ? 'hoje' : (podeFaxinas ? 'faxinas' : 'manutencao'));
   if(activeModulo === 'hoje') renderHoje();   // o financeiro some/aparece conforme o papel
 }
@@ -2658,6 +2716,7 @@ function irModulo(mod){
   else if(mod === 'faxinas') renderFaxinasList();
   else if(mod === 'manutencao'){ renderManutencaoList(); renderMateriaisList(); renderManutSemana(); }
   else if(mod === 'financeiro') renderConciliacao();
+  else if(mod === 'admin') renderAdmin();
 }
 function irManutTab(tab){
   document.querySelectorAll('.manut-tab').forEach(t => t.classList.remove('on'));
@@ -3318,6 +3377,132 @@ function renderHoje(){
    custo (que mora na Config), para mostrar receita, custo, lucro e margem, além
    do que saiu como cortesia/perda/quebra. */
 let vendasMovimentos = null;
+// ================= Módulo Admin: contas a pagar (só administrador) =================
+function salvarDespesas_(){
+  const p = JSON.stringify(despesas);
+  if(apiAvailable()) apiSalvarConfig('despesas', p).catch(()=>{});
+  try { localStorage.setItem('painelDespesas', p); } catch(e){}
+}
+function admMesRef_(){
+  const el = document.getElementById('admMes');
+  if(el && el.value) return el.value;
+  const h = new Date(); return h.getFullYear() + '-' + ('0'+(h.getMonth()+1)).slice(-2);
+}
+function abrirDespesaModal(id){
+  if(!isAdmin){ alert('Somente o administrador.'); return; }
+  const d = id ? despesas.find(function(x){ return x.id === id; }) : null;
+  document.getElementById('despesaModalTitulo').textContent = d ? 'Editar despesa' : 'Nova despesa';
+  document.getElementById('despId').value = d ? d.id : '';
+  document.getElementById('despDesc').value = d ? (d.descricao||'') : '';
+  document.getElementById('despValor').value = d ? d.valor : '';
+  document.getElementById('despVenc').value = d ? (d.vencimento||'') : (admMesRef_() + '-05');
+  document.getElementById('despTipo').value = d ? (d.tipo||'variavel') : 'variavel';
+  document.getElementById('despCat').value = d ? (d.categoria||'') : '';
+  document.getElementById('despBanco').value = d ? (d.banco||'') : '';
+  document.getElementById('despObs').value = d ? (d.obs||'') : '';
+  document.getElementById('despPago').checked = d ? (d.status === 'pago') : false;
+  const uniq = function(campo){ return Array.from(new Set(despesas.map(function(x){ return x[campo]; }).filter(Boolean))); };
+  document.getElementById('admCategorias').innerHTML = uniq('categoria').map(function(c){ return '<option value="' + c + '">'; }).join('');
+  document.getElementById('admBancos').innerHTML = uniq('banco').map(function(b){ return '<option value="' + b + '">'; }).join('');
+  document.getElementById('despesaModal').style.display = 'flex';
+}
+function closeDespesaModal(){ document.getElementById('despesaModal').style.display = 'none'; }
+function salvarDespesa(){
+  if(!isAdmin) return;
+  const id = document.getElementById('despId').value;
+  const desc = document.getElementById('despDesc').value.trim();
+  if(!desc){ alert('Informe a descrição.'); return; }
+  const pago = document.getElementById('despPago').checked;
+  const dados = {
+    descricao: desc,
+    valor: Number(document.getElementById('despValor').value) || 0,
+    vencimento: document.getElementById('despVenc').value,
+    tipo: document.getElementById('despTipo').value,
+    categoria: document.getElementById('despCat').value.trim(),
+    banco: document.getElementById('despBanco').value.trim(),
+    obs: document.getElementById('despObs').value.trim(),
+    status: pago ? 'pago' : 'pendente'
+  };
+  if(id){
+    const d = despesas.find(function(x){ return x.id === id; });
+    if(d){
+      if(pago && d.status !== 'pago') d.dataPagamento = new Date().toLocaleDateString('pt-BR');
+      if(!pago) d.dataPagamento = '';
+      Object.assign(d, dados);
+    }
+  } else {
+    dados.id = 'd' + Date.now() + Math.floor(Math.random() * 1000);
+    if(pago) dados.dataPagamento = new Date().toLocaleDateString('pt-BR');
+    despesas.push(dados);
+  }
+  salvarDespesas_(); closeDespesaModal(); renderAdmin();
+}
+function pagarDespesa(id){
+  if(!isAdmin) return;
+  const d = despesas.find(function(x){ return x.id === id; }); if(!d) return;
+  if(d.status === 'pago'){ d.status = 'pendente'; d.dataPagamento = ''; }
+  else { d.status = 'pago'; d.dataPagamento = new Date().toLocaleDateString('pt-BR'); }
+  salvarDespesas_(); renderAdmin();
+}
+function removerDespesa(id){
+  if(!isAdmin) return;
+  const d = despesas.find(function(x){ return x.id === id; }); if(!d) return;
+  if(!confirm('Remover "' + d.descricao + '"? (some da lista; nada é apagado de verdade)')) return;
+  d.removida = true; salvarDespesas_(); renderAdmin();
+}
+function repetirDespesa(id){
+  if(!isAdmin) return;
+  const d = despesas.find(function(x){ return x.id === id; }); if(!d) return;
+  const nova = Object.assign({}, d);
+  nova.id = 'd' + Date.now() + Math.floor(Math.random() * 1000);
+  nova.status = 'pendente'; nova.dataPagamento = '';
+  const m = (d.vencimento||'').match(/(\d{4})-(\d{2})-(\d{2})/);
+  if(m){ let y = +m[1], mo = +m[2] + 1, day = +m[3]; if(mo > 12){ mo = 1; y++; } nova.vencimento = y + '-' + ('0'+mo).slice(-2) + '-' + ('0'+day).slice(-2); }
+  despesas.push(nova); salvarDespesas_();
+  const mesEl = document.getElementById('admMes'); if(mesEl) mesEl.value = (nova.vencimento||'').slice(0,7);
+  renderAdmin();
+  alert('Despesa repetida para o mês seguinte (como pendente).');
+}
+function renderAdmin(){
+  if(!isAdmin) return;
+  const mesEl = document.getElementById('admMes'); if(mesEl && !mesEl.value) mesEl.value = admMesRef_();
+  const mes = admMesRef_();
+  const filtro = (document.getElementById('admFiltro') || {}).value || 'todos';
+  const doMes = despesas.filter(function(d){ return !d.removida && (d.vencimento||'').slice(0,7) === mes; });
+  let lista = doMes.slice();
+  if(filtro === 'pendente') lista = lista.filter(function(d){ return d.status !== 'pago'; });
+  else if(filtro === 'pago') lista = lista.filter(function(d){ return d.status === 'pago'; });
+  else if(filtro === 'fixa') lista = lista.filter(function(d){ return d.tipo === 'fixa'; });
+  else if(filtro === 'variavel') lista = lista.filter(function(d){ return d.tipo === 'variavel'; });
+  lista.sort(function(a,b){ return (a.vencimento||'').localeCompare(b.vencimento||''); });
+  const total = doMes.reduce(function(s,d){ return s + (Number(d.valor)||0); }, 0);
+  const pago = doMes.filter(function(d){ return d.status === 'pago'; }).reduce(function(s,d){ return s + (Number(d.valor)||0); }, 0);
+  document.getElementById('admResumo').innerHTML = '<div class="summary-bar">' +
+    '<span>Total do mês: <b>' + fmtMoney(total) + '</b></span>' +
+    '<span>Pago: <b style="color:var(--ok);">' + fmtMoney(pago) + '</b></span>' +
+    '<span>A pagar: <b style="color:#b00020;">' + fmtMoney(total - pago) + '</b></span>' +
+    '<span>Contas: <b>' + doMes.length + '</b></span></div>';
+  const box = document.getElementById('admLista');
+  if(!lista.length){ box.innerHTML = '<p class="empty">Nenhuma despesa neste mês/filtro. Toque em ➕ Nova despesa.</p>'; return; }
+  const _dm = function(iso){ const p = String(iso).split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; };
+  box.innerHTML = '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr>' +
+    '<th>Venc.</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Banco</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>' +
+    lista.map(function(d){
+      const st = d.status === 'pago'
+        ? '<span style="color:var(--ok);font-weight:600;">✅ pago' + (d.dataPagamento ? ' ' + d.dataPagamento : '') + '</span>'
+        : '<span style="color:#b00020;font-weight:600;">⏳ a pagar</span>';
+      return '<tr><td>' + _dm(d.vencimento) + '</td>' +
+        '<td>' + (d.descricao||'') + (d.obs ? '<div class="concil-sub">' + d.obs + '</div>' : '') + '</td>' +
+        '<td>' + (d.categoria||'') + '</td><td>' + (d.tipo === 'fixa' ? 'fixa' : 'variável') + '</td><td>' + (d.banco||'') + '</td>' +
+        '<td>' + fmtMoney(d.valor) + '</td><td>' + st + '</td>' +
+        '<td class="concil-acoes">' +
+          '<button class="mini" onclick="pagarDespesa(\'' + d.id + '\')">' + (d.status === 'pago' ? '↩️' : '✅ pagar') + '</button>' +
+          '<button class="mini secondary" onclick="abrirDespesaModal(\'' + d.id + '\')">✏️</button>' +
+          '<button class="mini secondary" onclick="repetirDespesa(\'' + d.id + '\')" title="repetir no próximo mês">🔁</button>' +
+          '<button class="mini secondary" onclick="removerDespesa(\'' + d.id + '\')">🗑️</button>' +
+        '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
 // ---------- Relatório de faturamento por período (admin) ----------
 function ymd_(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 function noitesReserva_(r){
