@@ -671,7 +671,10 @@
   <div class="toolbar">
     <div class="toolbar-row" style="justify-content:space-between;align-items:center;">
       <strong>💼 Contas a pagar</strong>
-      <button onclick="abrirDespesaModal()" style="background:var(--brand-terra);color:#fff;">➕ Nova despesa</button>
+      <span>
+        <button class="secondary" onclick="abrirExtratoModal()">🏦 Extratos</button>
+        <button onclick="abrirDespesaModal()" style="background:var(--brand-terra);color:#fff;">➕ Nova despesa</button>
+      </span>
     </div>
     <div class="toolbar-row" style="gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:0;">
       <label class="chk" style="gap:6px;">Mês <input type="month" id="admMes" onchange="renderAdmin()"></label>
@@ -744,6 +747,27 @@
       <input type="text" id="contFone" placeholder="+55 49 99999-9999" style="width:180px;padding:8px;border:1px solid var(--border);border-radius:6px;">
       <button onclick="addContato()">Adicionar</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="extratoModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>🏦 Extratos dos bancos (OFX)</h2>
+      <button class="secondary" onclick="closeExtratoModal()">Fechar</button>
+    </div>
+    <p style="font-size:13px;color:#5a5049;">Carregue o OFX de cada conta. O painel lê os <b>débitos (saídas)</b> e casa com as despesas pelo <b>valor</b> — aí você confirma o pagamento. Pode carregar vários meses/bancos (acumula, sem duplicar).</p>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;align-items:center;">
+      <label class="chk" style="gap:4px;">Banco/conta <input type="text" id="extBanco" list="admBancos2" placeholder="Ex.: Sicredi" style="width:150px;padding:8px;border:1px solid var(--border);border-radius:6px;"></label>
+      <label class="secondary" style="background:var(--brand-terra);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">
+        ⭐ Carregar OFX
+        <input type="file" id="extOfxInput" accept=".ofx,application/x-ofx,text/plain" multiple style="display:none;" onchange="onOfxExtrato(this)">
+      </label>
+      <button class="secondary" onclick="limparDebitosExtrato()">🗑️ Limpar débitos</button>
+    </div>
+    <datalist id="admBancos2"></datalist>
+    <p id="extStatus" class="status" style="font-size:12px;margin-top:8px;">Nenhum extrato carregado ainda.</p>
+    <div id="extResumo"></div>
   </div>
 </div>
 
@@ -1207,6 +1231,8 @@ let despesas = [];
 let contatosAdm = [];
 // Tarefas/pendências administrativas. [{id,titulo,prazo,responsavel,status,em,removida}]
 let tarefasAdm = [];
+// Débitos (saídas) dos extratos bancários, para conciliar com despesas. [{data,valor,memo,fitid,banco}]
+let debitosExtrato = [];
 let faxinaDetailsLocal = {};
 try { faxinaDetailsLocal = JSON.parse(localStorage.getItem('painelFaxinas') || '{}'); } catch(e){ faxinaDetailsLocal = {}; }
 function saveFaxinasLocal(){ localStorage.setItem('painelFaxinas', JSON.stringify(faxinaDetailsLocal)); }
@@ -1333,6 +1359,7 @@ function refreshFrigobarCache(){
         if(config.despesas){ try { despesas = JSON.parse(config.despesas) || []; } catch(e){} }
         if(config.contatosAdm){ try { contatosAdm = JSON.parse(config.contatosAdm) || []; } catch(e){} }
         if(config.tarefasAdm){ try { tarefasAdm = JSON.parse(config.tarefasAdm) || []; } catch(e){} }
+        if(config.debitosExtrato){ try { debitosExtrato = JSON.parse(config.debitosExtrato) || []; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
         protecaoAtiva = !!config.apiSecretSet;
@@ -3549,14 +3576,16 @@ function renderAdmin(){
   box.innerHTML = '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr>' +
     '<th>Venc.</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Banco</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>' +
     lista.map(function(d){
+      const match = d.status !== 'pago' ? casarDebitoDespesa_(d) : null;
       const st = d.status === 'pago'
         ? '<span style="color:var(--ok);font-weight:600;">✅ pago' + (d.dataPagamento ? ' ' + d.dataPagamento : '') + '</span>'
-        : '<span style="color:#b00020;font-weight:600;">⏳ a pagar</span>';
+        : ('<span style="color:#b00020;font-weight:600;">⏳ a pagar</span>' + (match ? '<div class="concil-sub" style="color:#1b7a3d;">💳 no extrato: ' + (match.banco||'') + ' ' + match.data + '</div>' : ''));
       return '<tr><td>' + _dm(d.vencimento) + '</td>' +
         '<td>' + (d.descricao||'') + (d.obs ? '<div class="concil-sub">' + d.obs + '</div>' : '') + '</td>' +
         '<td>' + (d.categoria||'') + '</td><td>' + (d.tipo === 'fixa' ? 'fixa' : 'variável') + '</td><td>' + (d.banco||'') + '</td>' +
         '<td>' + fmtMoney(d.valor) + '</td><td>' + st + '</td>' +
         '<td class="concil-acoes">' +
+          (match ? '<button class="mini" style="background:#1b7a3d;color:#fff;" onclick="confirmarPagamentoExtrato(\'' + d.id + '\')">💳 confirmar</button>' : '') +
           '<button class="mini" onclick="pagarDespesa(\'' + d.id + '\')">' + (d.status === 'pago' ? '↩️' : '✅ pagar') + '</button>' +
           '<button class="mini secondary" onclick="abrirDespesaModal(\'' + d.id + '\')">✏️</button>' +
           '<button class="mini secondary" onclick="repetirDespesa(\'' + d.id + '\')" title="repetir no próximo mês">🔁</button>' +
@@ -3564,6 +3593,79 @@ function renderAdmin(){
         '</td></tr>';
     }).join('') + '</tbody></table></div>';
 }
+// --- Conciliação de despesas com extrato dos bancos (débitos OFX) ---
+function salvarDebitos_(){ const p = JSON.stringify(debitosExtrato); if(apiAvailable()) apiSalvarConfig('debitosExtrato', p).catch(()=>{}); try { localStorage.setItem('painelDebitosExtrato', p); } catch(e){} }
+function abrirExtratoModal(){
+  if(!isAdmin) return;
+  document.getElementById('admBancos2').innerHTML = Array.from(new Set(despesas.map(function(d){ return d.banco; }).filter(Boolean).concat(debitosExtrato.map(function(d){ return d.banco; }).filter(Boolean)))).map(function(b){ return '<option value="' + b + '">'; }).join('');
+  renderExtratoResumo();
+  document.getElementById('extratoModal').style.display = 'flex';
+}
+function closeExtratoModal(){ document.getElementById('extratoModal').style.display = 'none'; }
+function renderExtratoResumo(){
+  const st = document.getElementById('extStatus'), box = document.getElementById('extResumo');
+  if(!debitosExtrato.length){ st.textContent = 'Nenhum extrato carregado ainda.'; box.innerHTML = ''; return; }
+  const porBanco = {};
+  debitosExtrato.forEach(function(d){ const b = d.banco || '(sem banco)'; const x = porBanco[b] || {n:0, v:0}; x.n++; x.v += Number(d.valor)||0; porBanco[b] = x; });
+  st.textContent = '✅ ' + debitosExtrato.length + ' débito(s) carregado(s).';
+  box.innerHTML = '<table class="fb-table"><thead><tr><th>Banco</th><th>Débitos</th><th>Total saídas</th></tr></thead><tbody>' +
+    Object.keys(porBanco).map(function(b){ return '<tr><td>' + b + '</td><td>' + porBanco[b].n + '</td><td>' + fmtMoney(porBanco[b].v) + '</td></tr>'; }).join('') + '</tbody></table>';
+}
+function mesclarDebitos_(ex, nv){
+  const vis = {}, out = [];
+  (ex||[]).concat(nv||[]).forEach(function(d){
+    const k = d.fitid ? ('f:' + d.fitid + '|' + (d.banco||'')) : ('d:' + d.data + '|' + d.valor + '|' + norm(d.memo||'') + '|' + (d.banco||''));
+    if(vis[k]) return; vis[k] = true; out.push(d);
+  });
+  return out;
+}
+function onOfxExtrato(input){
+  if(!isAdmin){ input.value = ''; return; }
+  const banco = document.getElementById('extBanco').value.trim();
+  if(!banco){ alert('Informe o banco/conta antes de carregar o OFX.'); input.value = ''; return; }
+  const files = input.files ? Array.prototype.slice.call(input.files) : [];
+  if(!files.length) return;
+  document.getElementById('extStatus').textContent = '⏳ Lendo ' + files.length + ' arquivo(s)...';
+  Promise.all(files.map(lerArquivoTexto_)).then(function(textos){
+    const antes = debitosExtrato.length; let lidos = 0;
+    textos.forEach(function(txt){
+      const r = parseOfxSicredi(txt);
+      (r.debitos||[]).forEach(function(d){ d.banco = banco; });
+      lidos += (r.debitos||[]).length;
+      debitosExtrato = mesclarDebitos_(debitosExtrato, r.debitos);
+    });
+    salvarDebitos_(); renderExtratoResumo(); renderAdmin();
+    alert('Extrato de ' + banco + ': ' + (debitosExtrato.length - antes) + ' débito(s) novo(s) (de ' + lidos + ' lidos).\nAs despesas que baterem por valor mostram "no extrato" para você confirmar.');
+  }).catch(function(e){ document.getElementById('extStatus').textContent = '❌ ' + e.message; });
+  input.value = '';
+}
+function limparDebitosExtrato(){
+  if(!isAdmin) return;
+  if(!debitosExtrato.length){ alert('Não há débitos carregados.'); return; }
+  if(!confirm('Limpar todos os débitos carregados? (não afeta as despesas)')) return;
+  debitosExtrato = []; salvarDebitos_(); renderExtratoResumo(); renderAdmin();
+}
+function fitidsUsados_(){ const s = {}; despesas.forEach(function(d){ if(d.fitidExtrato) s[d.fitidExtrato] = true; }); return s; }
+function casarDebitoDespesa_(desp){
+  if(desp.fitidExtrato) return debitosExtrato.find(function(d){ return (d.fitid || ('d:' + d.data + '|' + d.valor)) === desp.fitidExtrato; }) || null;
+  const valor = Number(desp.valor) || 0; if(!valor) return null;
+  const usados = fitidsUsados_();
+  const cand = debitosExtrato.filter(function(d){ return Math.abs((Number(d.valor)||0) - valor) <= 0.02 && !(d.fitid && usados[d.fitid]); });
+  if(!cand.length) return null;
+  const alvo = dataBrParaMs_((desp.vencimento||'').split('-').reverse().join('/')) || 0;
+  cand.sort(function(a,b){ return Math.abs(dataBrParaMs_(a.data) - alvo) - Math.abs(dataBrParaMs_(b.data) - alvo); });
+  return cand[0];
+}
+function confirmarPagamentoExtrato(id){
+  if(!isAdmin) return;
+  const d = despesas.find(function(x){ return x.id === id; }); if(!d) return;
+  const deb = casarDebitoDespesa_(d);
+  if(!deb){ alert('Não encontrei no extrato um débito com esse valor.'); return; }
+  d.status = 'pago'; d.dataPagamento = deb.data; d.banco = d.banco || deb.banco;
+  d.fitidExtrato = deb.fitid || ('d:' + deb.data + '|' + deb.valor);
+  salvarDespesas_(); renderAdmin();
+}
+
 // --- Contatos administrativos ---
 function salvarContatos_(){ const p = JSON.stringify(contatosAdm); if(apiAvailable()) apiSalvarConfig('contatosAdm', p).catch(()=>{}); try { localStorage.setItem('painelContatosAdm', p); } catch(e){} }
 function abrirContatosModal(){ if(!isAdmin) return; renderContatos(); document.getElementById('contatosModal').style.display = 'flex'; }
