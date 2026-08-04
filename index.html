@@ -3430,6 +3430,135 @@ function cardCheckinHtml(res, tipo){
       '<button class="mini ' + (feito?'secondary':'') + '" onclick="marcarCheckin(\'' + kEnc + '\')">' + (feito?'↩️ Desfazer chegada':'✅ Marcar chegada') + '</button>' +
     '</div></div>';
 }
+/* ---- Resumo do Dia: faixa de números + pendências acionáveis no topo da tela Hoje.
+   Respeita papéis: cesta só operador, financeiro/contas só admin. Envolto em try/catch
+   para nunca derrubar a tela Hoje se algum dado vier torto. ---- */
+function _vencMs_(s){ const m = String(s||'').match(/(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1],+m[2]-1,+m[3]).getTime() : null; }
+function tileResumo_(n, label, cor){
+  return '<div style="flex:1;min-width:92px;background:var(--card,#fff);border:1px solid var(--border);border-radius:10px;padding:9px 8px;text-align:center;">' +
+    '<div style="font-size:23px;font-weight:800;line-height:1.1;color:' + (cor||'var(--text,#3a2e22)') + ';">' + n + '</div>' +
+    '<div style="font-size:10.5px;color:#8a7d6f;margin-top:2px;">' + label + '</div></div>';
+}
+function blocoPend_(icone, titulo, cor, itensHtml){
+  if(!itensHtml) return '';
+  return '<div style="border:1px solid var(--border);border-left:4px solid ' + cor + ';border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--card,#fff);">' +
+    '<div style="font-weight:800;color:' + cor + ';margin-bottom:6px;font-size:13.5px;">' + icone + ' ' + titulo + '</div>' +
+    itensHtml + '</div>';
+}
+function linhaPend_(txt, onclick){
+  return '<div onclick="' + onclick + '" style="cursor:pointer;padding:6px 8px;border-radius:7px;font-size:13px;display:flex;justify-content:space-between;gap:8px;align-items:center;" ' +
+    'onmouseover="this.style.background=\'rgba(0,0,0,.05)\'" onmouseout="this.style.background=\'\'">' +
+    '<span>' + txt + '</span><span style="color:#8a7d6f;font-size:12px;">›</span></div>';
+}
+function resumoDoDiaHtml(ativas, chegadas, saidas, hospedados, hoje){
+  try {
+    const horaMs = hoje.getTime();
+    const op = isOperador();
+    const adm = isAdmin;
+
+    // --- Faxinas pendentes (devidas nos últimos 14 dias, sem execução) ---
+    // Janela recente: check-outs antigos (anteriores à adoção do sistema) já foram
+    // faxinados fora do painel e só gerariam ruído.
+    let faxPend = [];
+    const faxDesde = horaMs - 14*86400000;
+    try { faxPend = todasFaxinas().filter(function(f){
+      if(f.dataExecucao || !f.checkout) return false;
+      const co = new Date(f.checkout.getFullYear(),f.checkout.getMonth(),f.checkout.getDate()).getTime();
+      return co <= horaMs && co >= faxDesde;
+    }); } catch(e){}
+
+    // --- Cestas pedidas que precisam de ação (não configurada OU não totalmente pedida ao fornecedor) ---
+    let cestasPend = [];
+    if(op){
+      ativas.forEach(function(r){
+        if(!r.checkout || new Date(r.checkout.getFullYear(),r.checkout.getMonth(),r.checkout.getDate()).getTime() < horaMs) return; // já saiu
+        let c; try { c = cestaDaReserva_(r); } catch(e){ return; }
+        if(c.pedida && (!c.qtd || !c.avisado)) cestasPend.push({ r:r, c:c });
+      });
+      cestasPend.sort(function(a,b){ return (a.r.checkin||0) - (b.r.checkin||0); });
+    }
+
+    // --- Chegadas de hoje com saldo em aberto (cobrar na chegada) — só admin ---
+    let chegSaldo = [];
+    let saldoReceberHoje = 0;
+    if(podeVerPagamento()){
+      chegSaldo = chegadas.filter(function(r){ return (Number(r.saldo)||0) > 0; });
+      saldoReceberHoje = chegSaldo.reduce(function(s,r){ return s + (Number(r.saldo)||0); }, 0);
+    }
+
+    // --- Contas a pagar vencidas / a vencer em 3 dias — só admin ---
+    let contasVenc = [];
+    if(adm){
+      const lim = horaMs + 3*86400000;
+      contasVenc = (despesas||[]).filter(function(d){
+        if(d.removida || d.status === 'pago') return false;
+        const v = _vencMs_(d.vencimento); return v !== null && v <= lim;
+      }).sort(function(a,b){ return (_vencMs_(a.vencimento)||0) - (_vencMs_(b.vencimento)||0); });
+    }
+
+    // --- Faixa de números (tiles) ---
+    let tiles = tileResumo_(chegadas.length, 'Chegadas hoje', '#2f6f43') +
+                tileResumo_(saidas.length, 'Saídas hoje', '#b45309') +
+                tileResumo_(hospedados.length, 'Na casa agora', '#3a2e22') +
+                tileResumo_(faxPend.length, 'Faxinas pendentes', faxPend.length ? '#b02a1c' : '#2f6f43');
+    if(op) tiles += tileResumo_(cestasPend.length, 'Cestas p/ resolver', cestasPend.length ? '#b45309' : '#2f6f43');
+    if(podeVerPagamento()) tiles += tileResumo_(fmtMoney(saldoReceberHoje), 'A receber (chegadas)', saldoReceberHoje>0 ? '#b02a1c' : '#2f6f43');
+
+    // --- Blocos de pendência (só aparecem se tiverem itens) ---
+    const MAXL = 6;
+    let cestasHtml = '';
+    if(cestasPend.length){
+      cestasHtml = cestasPend.slice(0,MAXL).map(function(x){
+        const r = x.r, c = x.c;
+        const quando = r.checkin ? r.checkin.toLocaleDateString('pt-BR') : '';
+        const estado = !c.qtd ? '<b style="color:#b45309;">configurar</b> (' + (c.pedidaTexto||'pedida') + ')'
+                              : 'pedir ao fornecedor (' + c.avQtd + '/' + c.qtd + ' feitos)';
+        return linhaPend_('☕ ' + (r.nome||'(sem nome)') + ' · ' + (cabanaFrigobar(r)||r.acomodacao||'-') + ' · ' + quando + ' — ' + estado,
+          "abrirFaxinaDetalhe('" + resKey(r).replace(/'/g,"\\'") + "')");
+      }).join('') + (cestasPend.length > MAXL ? '<div style="font-size:11px;color:#8a7d6f;padding:4px 8px;">+' + (cestasPend.length-MAXL) + ' outras…</div>' : '');
+    }
+    let faxHtml = '';
+    if(faxPend.length){
+      faxHtml = faxPend.slice(0,MAXL).map(function(f){
+        return linhaPend_('🧹 ' + f.cabana + ' · saída ' + (f.checkout?f.checkout.toLocaleDateString('pt-BR'):'?') + ' · ' + (f.hospede||''),
+          "abrirFaxinaDetalhe('" + String(f.key).replace(/'/g,"\\'") + "')");
+      }).join('') + (faxPend.length > MAXL ? '<div style="font-size:11px;color:#8a7d6f;padding:4px 8px;">+' + (faxPend.length-MAXL) + ' outras…</div>' : '');
+    }
+    let saldoHtml = '';
+    if(chegSaldo.length){
+      saldoHtml = chegSaldo.slice(0,MAXL).map(function(r){
+        return linhaPend_('💰 ' + (r.nome||'(sem nome)') + ' · ' + (cabanaFrigobar(r)||r.acomodacao||'-') + ' — falta <b>' + fmtMoney(Number(r.saldo)||0) + '</b>',
+          "abrirCobranca('" + encodeURIComponent(resKey(r)) + "')");
+      }).join('');
+    }
+    let contasHtml = '';
+    if(contasVenc.length){
+      contasHtml = contasVenc.slice(0,MAXL).map(function(d){
+        const v = _vencMs_(d.vencimento);
+        const atrasada = v !== null && v < horaMs;
+        const vtxt = d.vencimento ? d.vencimento.split('-').reverse().join('/') : '';
+        return linhaPend_('📄 ' + (d.descricao||'(despesa)') + ' · ' + fmtMoney(Number(d.valor)||0) + ' · ' +
+          (atrasada ? '<b style="color:#b02a1c;">VENCIDA ' + vtxt + '</b>' : 'vence ' + vtxt),
+          "irModulo('admin')");
+      }).join('') + (contasVenc.length > MAXL ? '<div style="font-size:11px;color:#8a7d6f;padding:4px 8px;">+' + (contasVenc.length-MAXL) + ' outras…</div>' : '');
+    }
+
+    const blocos = blocoPend_('☕', 'Cestas pedidas para resolver', '#b45309', cestasHtml) +
+                   blocoPend_('🧹', 'Faxinas pendentes', '#b02a1c', faxHtml) +
+                   blocoPend_('💰', 'Chegadas de hoje com saldo em aberto', '#b02a1c', saldoHtml) +
+                   blocoPend_('📄', 'Contas vencidas / a vencer (3 dias)', '#b45309', contasHtml);
+
+    const semPend = !blocos;
+    return '<div class="hoje-sec" style="margin-bottom:14px;">' +
+      '<h3 style="margin-bottom:8px;">📋 Resumo do dia — ' + hoje.toLocaleDateString('pt-BR') + '</h3>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:' + (semPend?'0':'12px') + ';">' + tiles + '</div>' +
+      blocos +
+      (semPend ? '<p class="empty" style="margin:0;color:#2f6f43;">✅ Tudo em dia — nenhuma pendência.</p>' : '') +
+      '</div>';
+  } catch(e){
+    return '';
+  }
+}
 function renderHoje(){
   const box = document.getElementById('hojeBox');
   if(!box) return;
@@ -3453,6 +3582,7 @@ function renderHoje(){
   const saidas   = ativas.filter(r => mesmoDia(r.checkout)).sort((a,b)=> (a.nome||'').localeCompare(b.nome||''));
   const hospedados = ativas.filter(r => r.checkin && r.checkout && r.checkin < hoje && r.checkout > hoje);
   box.innerHTML =
+    resumoDoDiaHtml(ativas, chegadas, saidas, hospedados, hoje) +
     '<div class="hoje-sec"><h3>🛬 Chegadas de hoje (' + chegadas.length + ') — ' + hoje.toLocaleDateString('pt-BR') + '</h3>' +
       (chegadas.length ? chegadas.map(r => cardCheckinHtml(r,'chegada')).join('') : '<p class="empty">Nenhuma chegada hoje.</p>') + '</div>' +
     '<div class="hoje-sec"><h3>🛫 Saídas de hoje (' + saidas.length + ')</h3>' +
