@@ -672,6 +672,7 @@
     <div class="toolbar-row" style="justify-content:space-between;align-items:center;">
       <strong>💼 Contas a pagar</strong>
       <span>
+        <button class="secondary" onclick="conciliarTudo_()" title="Marca como pagas todas as despesas que batem com o extrato">💳 Conciliar tudo</button>
         <button class="secondary" onclick="abrirExtratoModal()">🏦 Extratos</button>
         <button onclick="abrirDespesaModal()" style="background:var(--brand-terra);color:#fff;">➕ Nova despesa</button>
       </span>
@@ -3565,22 +3566,50 @@ function renderAdmin(){
   lista.sort(function(a,b){ return (a.vencimento||'').localeCompare(b.vencimento||''); });
   const total = doMes.reduce(function(s,d){ return s + (Number(d.valor)||0); }, 0);
   const pago = doMes.filter(function(d){ return d.status === 'pago'; }).reduce(function(s,d){ return s + (Number(d.valor)||0); }, 0);
-  document.getElementById('admResumo').innerHTML = '<div class="summary-bar">' +
+  const hoje = new Date(); const hojeMs = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()).getTime(); const sem7 = hojeMs + 7*86400000;
+  const vMs = function(d){ const p = (d.vencimento||'').split('-'); return p.length === 3 ? new Date(+p[0], +p[1]-1, +p[2]).getTime() : 0; };
+  const mesDe_ = function(br){ const m = String(br).match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? m[3] + '-' + m[2] : ''; };
+  // (1) alertas de vencimento — todas as pendentes, não só o mês em tela
+  const pend = despesas.filter(function(d){ return !d.removida && d.status !== 'pago' && d.vencimento; });
+  const vencidas = pend.filter(function(d){ return vMs(d) < hojeMs; });
+  const prox = pend.filter(function(d){ const t = vMs(d); return t >= hojeMs && t <= sem7; });
+  // (3) resultado do mês: entrou no banco (créditos OFX) - despesas do mês
+  const creditosMes = (typeof sicrediCreditos !== 'undefined' ? sicrediCreditos : []).filter(function(c){ return mesDe_(c.data) === mes; }).reduce(function(s,c){ return s + (Number(c.valor)||0); }, 0);
+  const resultado = creditosMes - total;
+  // (5) por categoria
+  const porCat = {}; doMes.forEach(function(d){ const c = d.categoria || '(sem categoria)'; porCat[c] = (porCat[c]||0) + (Number(d.valor)||0); });
+  const catLinha = Object.keys(porCat).sort(function(a,b){ return porCat[b] - porCat[a]; }).map(function(c){ return c + ': ' + fmtMoney(porCat[c]); }).join('  ·  ');
+  let resumo = '<div class="summary-bar">' +
     '<span>Total do mês: <b>' + fmtMoney(total) + '</b></span>' +
     '<span>Pago: <b style="color:var(--ok);">' + fmtMoney(pago) + '</b></span>' +
     '<span>A pagar: <b style="color:#b00020;">' + fmtMoney(total - pago) + '</b></span>' +
     '<span>Contas: <b>' + doMes.length + '</b></span></div>';
+  resumo += '<div class="summary-bar" style="margin-top:6px;">' +
+    '<span>💰 Entrou no banco (mês): <b style="color:var(--ok);">' + fmtMoney(creditosMes) + '</b></span>' +
+    '<span>💸 Despesas do mês: <b>' + fmtMoney(total) + '</b></span>' +
+    '<span>📊 Resultado: <b style="color:' + (resultado >= 0 ? 'var(--ok)' : '#b00020') + ';">' + fmtMoney(resultado) + '</b></span></div>';
+  if(vencidas.length || prox.length){
+    resumo += '<div style="margin-top:6px;font-size:13px;">' +
+      (vencidas.length ? '<span style="color:#b00020;font-weight:700;">⚠️ ' + vencidas.length + ' conta(s) VENCIDA(S) (' + fmtMoney(vencidas.reduce(function(s,d){ return s+(Number(d.valor)||0); },0)) + ')</span>&nbsp;&nbsp;' : '') +
+      (prox.length ? '<span style="color:#b45309;font-weight:600;">⏰ ' + prox.length + ' vence(m) em 7 dias</span>' : '') + '</div>';
+  }
+  if(catLinha) resumo += '<div class="empty" style="font-size:11px;margin-top:4px;">Por categoria: ' + catLinha + '</div>';
+  document.getElementById('admResumo').innerHTML = resumo;
   const box = document.getElementById('admLista');
-  if(!lista.length){ box.innerHTML = '<p class="empty">Nenhuma despesa neste mês/filtro. Toque em ➕ Nova despesa.</p>'; return; }
   const _dm = function(iso){ const p = String(iso).split('-'); return p.length === 3 ? p[2] + '/' + p[1] : iso; };
-  box.innerHTML = '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr>' +
+  let tabela;
+  if(!lista.length){ tabela = '<p class="empty">Nenhuma despesa neste mês/filtro. Toque em ➕ Nova despesa.</p>'; }
+  else tabela = '<div style="overflow-x:auto;"><table class="fb-table"><thead><tr>' +
     '<th>Venc.</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Banco</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>' +
     lista.map(function(d){
       const match = d.status !== 'pago' ? casarDebitoDespesa_(d) : null;
+      const atras = d.status !== 'pago' && vMs(d) && vMs(d) < hojeMs;
+      const perto = d.status !== 'pago' && vMs(d) >= hojeMs && vMs(d) <= sem7;
+      const vencStyle = atras ? ' style="color:#b00020;font-weight:700;"' : (perto ? ' style="color:#b45309;font-weight:600;"' : '');
       const st = d.status === 'pago'
         ? '<span style="color:var(--ok);font-weight:600;">✅ pago' + (d.dataPagamento ? ' ' + d.dataPagamento : '') + '</span>'
         : ('<span style="color:#b00020;font-weight:600;">⏳ a pagar</span>' + (match ? '<div class="concil-sub" style="color:#1b7a3d;">💳 no extrato: ' + (match.banco||'') + ' ' + match.data + '</div>' : ''));
-      return '<tr><td>' + _dm(d.vencimento) + '</td>' +
+      return '<tr><td' + vencStyle + '>' + _dm(d.vencimento) + (atras ? ' ⚠️' : '') + '</td>' +
         '<td>' + (d.descricao||'') + (d.obs ? '<div class="concil-sub">' + d.obs + '</div>' : '') + '</td>' +
         '<td>' + (d.categoria||'') + '</td><td>' + (d.tipo === 'fixa' ? 'fixa' : 'variável') + '</td><td>' + (d.banco||'') + '</td>' +
         '<td>' + fmtMoney(d.valor) + '</td><td>' + st + '</td>' +
@@ -3592,6 +3621,43 @@ function renderAdmin(){
           '<button class="mini secondary" onclick="removerDespesa(\'' + d.id + '\')">🗑️</button>' +
         '</td></tr>';
     }).join('') + '</tbody></table></div>';
+  // (4) débitos do extrato sem despesa lançada
+  const cobertos = {}; despesas.forEach(function(d){ if(d.fitidExtrato) cobertos[d.fitidExtrato] = true; });
+  const semDesp = (debitosExtrato||[]).filter(function(deb){
+    const id = deb.fitid || ('d:' + deb.data + '|' + deb.valor);
+    if(cobertos[id]) return false;
+    return !despesas.some(function(d){ return !d.removida && Math.abs((Number(d.valor)||0) - (Number(deb.valor)||0)) <= 0.02; });
+  });
+  let extraHtml = '';
+  if(semDesp.length){
+    extraHtml = '<details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:600;font-size:13px;color:#b45309;">💸 ' + semDesp.length + ' saída(s) no extrato sem despesa lançada (clique para ver)</summary>' +
+      '<div style="overflow-x:auto;"><table class="fb-table" style="margin-top:8px;"><thead><tr><th>Data</th><th>Banco</th><th>Valor</th><th>Descrição</th><th></th></tr></thead><tbody>' +
+      semDesp.map(function(deb){ const id = deb.fitid || ('d:' + deb.data + '|' + deb.valor); return '<tr><td>' + deb.data + '</td><td>' + (deb.banco||'') + '</td><td>' + fmtMoney(deb.valor) + '</td><td>' + ((deb.memo||'').slice(0,40)) + '</td>' +
+        '<td><button class="mini secondary" onclick="abrirDespesaDoDebito(\'' + id + '\')">➕ lançar</button></td></tr>'; }).join('') +
+      '</tbody></table></div></details>';
+  }
+  box.innerHTML = tabela + extraHtml;
+}
+function conciliarTudo_(){
+  if(!isAdmin) return;
+  if(!debitosExtrato.length){ alert('Carregue um extrato primeiro (🏦 Extratos).'); return; }
+  let n = 0;
+  despesas.filter(function(d){ return !d.removida && d.status !== 'pago'; }).forEach(function(d){
+    const deb = casarDebitoDespesa_(d);
+    if(deb){ d.status = 'pago'; d.dataPagamento = deb.data; d.banco = d.banco || deb.banco; d.fitidExtrato = deb.fitid || ('d:' + deb.data + '|' + deb.valor); n++; }
+  });
+  if(n){ salvarDespesas_(); renderAdmin(); alert(n + ' despesa(s) conciliada(s) e marcada(s) como paga(s) pelo extrato.'); }
+  else alert('Nenhuma despesa pendente bateu com o extrato.');
+}
+function abrirDespesaDoDebito(fitid){
+  if(!isAdmin) return;
+  const deb = debitosExtrato.find(function(x){ return (x.fitid || ('d:' + x.data + '|' + x.valor)) === fitid; }); if(!deb) return;
+  abrirDespesaModal();
+  document.getElementById('despDesc').value = (deb.memo || deb.pagador || 'Despesa').slice(0,60);
+  document.getElementById('despValor').value = deb.valor;
+  const m = String(deb.data).match(/(\d{2})\/(\d{2})\/(\d{4})/); if(m) document.getElementById('despVenc').value = m[3] + '-' + m[2] + '-' + m[1];
+  document.getElementById('despBanco').value = deb.banco || '';
+  document.getElementById('despPago').checked = true;
 }
 // --- Conciliação de despesas com extrato dos bancos (débitos OFX) ---
 function salvarDebitos_(){ const p = JSON.stringify(debitosExtrato); if(apiAvailable()) apiSalvarConfig('debitosExtrato', p).catch(()=>{}); try { localStorage.setItem('painelDebitosExtrato', p); } catch(e){} }
