@@ -350,14 +350,15 @@
   </div>
   <div class="toolbar-row">
     <button class="btn-details" onclick="openDetailsModal()">📋 Ver detalhes de uma reserva (observações / frigobar)</button>
-    <button class="btn-admin" id="adminToggleBtn" onclick="toggleAdmin()">🔒 Entrar como administrador</button>
-    <button class="btn-admin" id="faxineiraToggleBtn" onclick="toggleFaxineira()">🧹 Entrar como colaborador da limpeza</button>
-    <button class="btn-admin" id="manutColabToggleBtn" onclick="toggleManutColab()">🔧 Entrar como colaborador de manutenção</button>
+    <button class="btn-admin" id="adminToggleBtn" onclick="toggleAdmin()">👑 Entrar como administrador</button>
+    <button class="btn-admin" id="faxineiraToggleBtn" onclick="toggleFaxineira()">🧺 Responsável Limpeza</button>
+    <button class="btn-admin" id="manutColabToggleBtn" onclick="toggleManutColab()">🔧 Responsável Manutenção</button>
     <button class="btn-details" id="stockBtn" onclick="openStockModal()" style="display:none;">📦 Estoque de frigobar</button>
     <button class="btn-details" id="productsBtn" onclick="openProductsModal()" style="display:none;">🧾 Produtos do frigobar</button>
     <button class="btn-details" id="pixBtn" onclick="openPixModal()" style="display:none;">💳 Dados PIX (cobrança)</button>
     <button class="btn-details" id="telegramBtn" onclick="openTelegramModal()" style="display:none;">🔔 Alertas no WhatsApp</button>
     <button class="btn-details" id="cestaBtn" onclick="openCestaConfig()" style="display:none;">☕ Cesta de café</button>
+    <button class="btn-details" id="checklistAdminBtn" onclick="abrirChecklistAdminModal()" style="display:none;">🧹 Checklist da faxina</button>
   </div>
 </div>
 
@@ -410,10 +411,10 @@
 <div class="modal-overlay" id="faxineiraModal" style="display:none;">
   <div class="modal admin-modal">
     <div class="modal-head">
-      <h2>Acesso do Colaborador da Limpeza</h2>
+      <h2>Acesso — Responsável Limpeza</h2>
       <button class="secondary" onclick="closeFaxineiraModal()">Fechar</button>
     </div>
-    <label for="faxineiraPinInput">Código do colaborador da limpeza</label>
+    <label for="faxineiraPinInput">Código de acesso</label>
     <form onsubmit="event.preventDefault(); submitFaxineiraPin();">
       <input type="password" id="faxineiraPinInput" autocomplete="off" placeholder="Digite o código">
       <div class="admin-error" id="faxineiraError">Código incorreto. Tente novamente.</div>
@@ -425,10 +426,10 @@
 <div class="modal-overlay" id="manutColabModal" style="display:none;">
   <div class="modal admin-modal">
     <div class="modal-head">
-      <h2>Acesso do Colaborador de Manutenção</h2>
+      <h2>Acesso — Responsável Manutenção</h2>
       <button class="secondary" onclick="closeManutColabModal()">Fechar</button>
     </div>
-    <label for="manutColabPinInput">Código do colaborador de manutenção</label>
+    <label for="manutColabPinInput">Código de acesso</label>
     <form onsubmit="event.preventDefault(); submitManutColabPin();">
       <input type="password" id="manutColabPinInput" autocomplete="off" placeholder="Digite o código">
       <div class="admin-error" id="manutColabError">Código incorreto. Tente novamente.</div>
@@ -751,6 +752,31 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="checklistAdminModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>🧹 Checklist da Faxina (editar)</h2>
+      <button class="secondary" onclick="closeChecklistAdminModal()">Fechar</button>
+    </div>
+    <p style="font-size:13px;color:#5a5049;">Itens extras abaixo aparecem em <b>toda</b> faxina, além das toalhas/sabonete/papel/roupa de cama que o painel já calcula sozinho pelo nº de hóspedes.</p>
+    <div id="checklistExtraLista"></div>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;margin-top:8px;">
+      <input type="text" id="checklistExtraInput" placeholder="Ex.: Testar controle da TV / trocar gás da churrasqueira" style="flex:1;min-width:200px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <button onclick="addChecklistExtra()">Adicionar</button>
+    </div>
+    <hr style="margin:16px 0;">
+    <h3 style="margin:0 0 6px;">📦 Inventário de utensílios e bens por cabana</h3>
+    <p style="font-size:13px;color:#5a5049;">A responsável pela limpeza confere se esses itens estão todos lá a cada faxina daquela unidade.</p>
+    <label for="inventarioAdminUnidade">Cabana/Container</label>
+    <select id="inventarioAdminUnidade" onchange="mudarInventarioAdminUnidade(this.value)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;"></select>
+    <div id="inventarioAdminLista"></div>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;margin-top:8px;">
+      <input type="text" id="inventarioItemInput" placeholder="Ex.: Jogo de panelas (4 peças), controle da TV, cobertor extra..." style="flex:1;min-width:200px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <button onclick="addInventarioItem()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="extratoModal" style="display:none;">
   <div class="modal admin-modal">
     <div class="modal-head">
@@ -804,34 +830,38 @@
 <div id="printArea"></div>
 
 <script>
-// Código de acesso do administrador. Troque este valor antes de publicar o painel
+// Código de acesso do administrador (Mestre). Troque este valor antes de publicar o painel
 // (qualquer pessoa com acesso ao código-fonte da página pode ler esta linha —
 // isto NÃO é uma senha segura, é apenas um bloqueio para evitar edições acidentais).
-const ADMIN_PIN = 'encantos2026';
+const ADMIN_PIN = 'Mestre123@';
+// Código de acesso da Maiara — mesmo nível de acesso total do Mestre (vê e faz tudo).
+// É um segundo login só para identificar quem está mexendo; não é um papel diferente.
+const MAIARA_PIN = 'Maiara123@';
 let isAdmin = false;
+let adminNome = '';   // 'mestre' | 'maiara' | '' — só para mostrar quem está logado
 
 // Código de acesso do colaborador da limpeza. Troque este valor antes de publicar o painel.
 // Dá acesso a lançar consumo de frigobar e marcar faxinas como executadas,
 // vendo o valor da faxina mas sem ver saldos/valores da reserva.
-const FAXINEIRA_PIN = 'faxina2026';
+const FAXINEIRA_PIN = 'Limpeza123@';
 let isFaxineira = false;
 
 // Código de acesso do colaborador de manutenção. Troque este valor antes de publicar.
 // Só tem acesso ao módulo Manutenção, sem nenhum dado financeiro em lugar nenhum
 // (não vê reservas, não vê frigobar, não vê valores de faxina).
-const MANUTENCAO_PIN = 'manutencao2026';
+const MANUTENCAO_PIN = 'Manutencao123@';
 let isManutColab = false;
 
 // Mantém o papel escolhido entre recarregamentos, para não pedir o PIN toda hora.
 // É só uma conveniência (o PIN já não é segredo real, por ser página pública).
 function salvarPapel(){
-  const papel = isAdmin ? 'admin' : isFaxineira ? 'faxineira' : isManutColab ? 'manutencao' : '';
+  const papel = isAdmin ? ('admin:' + (adminNome||'mestre')) : isFaxineira ? 'faxineira' : isManutColab ? 'manutencao' : '';
   try { papel ? localStorage.setItem('painelPapel', papel) : localStorage.removeItem('painelPapel'); } catch(e){}
 }
 function restaurarPapel(){
   let papel = '';
   try { papel = localStorage.getItem('painelPapel') || ''; } catch(e){}
-  if(papel === 'admin') isAdmin = true;
+  if(papel.indexOf('admin') === 0){ isAdmin = true; adminNome = papel.split(':')[1] || 'mestre'; }
   else if(papel === 'faxineira') isFaxineira = true;
   else if(papel === 'manutencao') isManutColab = true;
 }
@@ -1232,6 +1262,14 @@ let despesas = [];
 let contatosAdm = [];
 // Tarefas/pendências administrativas. [{id,titulo,prazo,responsavel,status,em,removida}]
 let tarefasAdm = [];
+// Itens extras do checklist de faxina, editados pelo administrador. [{id,label}]
+// Aparecem em TODA faxina, além do que o painel já calcula pelo nº de hóspedes.
+let checklistExtraItens = [];
+try { checklistExtraItens = JSON.parse(localStorage.getItem('painelChecklistExtra') || '[]'); } catch(e){ checklistExtraItens = []; }
+// Inventário de utensílios/bens por cabana, editado pelo administrador.
+// { 'CABANA ROSA': [{id,label}, ...], ... } — chave igual ao valor de CABANAS.
+let inventarioCabanas = {};
+try { inventarioCabanas = JSON.parse(localStorage.getItem('painelInventarioCabanas') || '{}'); } catch(e){ inventarioCabanas = {}; }
 // Débitos (saídas) dos extratos bancários, para conciliar com despesas. [{data,valor,memo,fitid,banco}]
 let debitosExtrato = [];
 let faxinaDetailsLocal = {};
@@ -1360,6 +1398,8 @@ function refreshFrigobarCache(){
         if(config.despesas){ try { despesas = JSON.parse(config.despesas) || []; } catch(e){} }
         if(config.contatosAdm){ try { contatosAdm = JSON.parse(config.contatosAdm) || []; } catch(e){} }
         if(config.tarefasAdm){ try { tarefasAdm = JSON.parse(config.tarefasAdm) || []; } catch(e){} }
+        if(config.checklistExtra){ try { checklistExtraItens = JSON.parse(config.checklistExtra) || []; } catch(e){} }
+        if(config.inventarioCabanas){ try { inventarioCabanas = JSON.parse(config.inventarioCabanas) || {}; } catch(e){} }
         if(config.debitosExtrato){ try { debitosExtrato = JSON.parse(config.debitosExtrato) || []; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
@@ -1612,6 +1652,8 @@ function todasFaxinas(){
       key: key,
       cabana: cabanaFrigobar(r),
       hospede: r.nome || '(sem nome)',
+      adultos: Number(r.adultos)||0,
+      criancas: Number(r.criancas)||0,
       checkout: r.checkout,
       dataExecucao: fx.dataExecucao || '',
       executadoPor: fx.executadoPor || '',
@@ -1681,9 +1723,10 @@ function faxinaCardHtml(f){
   const avisar = (isAdmin && !f.dataExecucao)
     ? `<button class="mini secondary" style="margin-top:6px;" onclick="event.stopPropagation(); avisarFaxineira('${encodeURIComponent(f.cabana)}','${encodeURIComponent(f.hospede||'')}','${f.checkout ? f.checkout.toLocaleDateString('pt-BR') : ''}')">🔔 Avisar faxineira</button>`
     : '';
+  const guests = (f.adultos||0) + (f.criancas||0);
   return `<div class="card" onclick="abrirFaxinaDetalhe('${f.key}')" title="Clique para ver detalhes desta faxina">
     <div class="cab">${f.cabana}</div>
-    <div class="meta">${f.hospede}</div>
+    <div class="meta">${f.hospede}${guests ? ' · 👥 ' + guests + (guests===1?' pessoa':' pessoas') : ''}</div>
     <div class="badges">${statusBadge}</div>
     ${financeiro}
     ${avisar}
@@ -1707,6 +1750,171 @@ function avisarFaxineira(cabanaEnc, hospedeEnc, checkoutBR){
 }
 function abrirFaxinaDetalhe(key){
   openDetailsModal(key);
+}
+
+// ---------- Checklist de enxoval (baseado no nº de hóspedes) ----------
+// Lista para a faxineira conferir o que precisa levar/repor, calculada
+// automaticamente a partir de adultos+crianças da reserva. Fica só no
+// navegador de quem está usando (não precisa sincronizar entre aparelhos:
+// é uma conferência feita durante a própria faxina).
+let checklistFaxinaLocal = {};
+try { checklistFaxinaLocal = JSON.parse(localStorage.getItem('painelChecklistFaxina') || '{}'); } catch(e){ checklistFaxinaLocal = {}; }
+function saveChecklistFaxinaLocal(){ localStorage.setItem('painelChecklistFaxina', JSON.stringify(checklistFaxinaLocal)); }
+function checklistEnxovalItens(guests){
+  const n = Math.max(1, guests || 1);
+  const papelRolos = n <= 2 ? 1 : 2;
+  return [
+    {id:'toalhaBanho', label: n + ' toalha' + (n===1?'':'s') + ' de banho'},
+    {id:'toalhaRosto', label: n + ' toalha' + (n===1?'':'s') + ' de rosto'},
+    {id:'sabonete', label: 'Sabonete líquido nos vasilhames do banheiro — conferir nível e repor'},
+    {id:'xampu', label: 'Xampu e condicionador nos vasilhames — conferir nível e repor'},
+    {id:'papelHigienico', label: 'Papel higiênico — pelo menos ' + papelRolos + ' rolo(s)'},
+    {id:'roupaCama', label: 'Roupa de cama completa (lençol, fronha, cobertor) para ' + n + ' pessoa' + (n===1?'':'s')},
+    {id:'lixo', label: 'Lixeiras vazias e sacos de lixo repostos'},
+    {id:'frigobar', label: 'Conferir o frigobar físico: algo saiu e não foi lançado? Lance e cobre no "Consumo de frigobar" acima'}
+  ];
+}
+// Junta os itens calculados (toalhas etc.) com os itens extras que o
+// administrador cadastrou em "🧹 Checklist da faxina" (ver abrirChecklistAdminModal).
+function checklistFaxinaItensCompletos(guests){
+  const base = checklistEnxovalItens(guests).map(it => ({id: it.id, label: it.label, extra:false}));
+  const extra = checklistExtraItens.map(it => ({id: 'extra_' + it.id, label: it.label, extra:true}));
+  return base.concat(extra);
+}
+function checklistFaxinaHtml(key, guests){
+  const itens = checklistFaxinaItensCompletos(guests);
+  const estado = checklistFaxinaLocal[key] || {};
+  const marcados = itens.filter(it => estado[it.id]).length;
+  return `
+    <div class="checklist-enxoval" style="margin:8px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+        <div style="font-size:12px;color:#8a7d6f;">
+          📋 Checklist de enxoval — ${guests || '?'} hóspede(s) (${marcados}/${itens.length} conferido${itens.length===1?'':'s'})
+        </div>
+        ${isAdmin ? `<button class="mini secondary" onclick="abrirChecklistAdminModal()">✏️ Editar itens do checklist</button>` : ''}
+      </div>
+      ${itens.map(it => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:2px 0;cursor:pointer;">
+          <input type="checkbox" ${estado[it.id] ? 'checked' : ''} onchange="toggleChecklistFaxina('${key}','${it.id}',this.checked)">
+          <span${estado[it.id] ? ' style="text-decoration:line-through;color:#8a7d6f;"' : ''}>${it.extra ? '⭐ ' : ''}${it.label}</span>
+        </label>
+      `).join('')}
+    </div>
+  `;
+}
+function toggleChecklistFaxina(key, itemId, checked){
+  if(!checklistFaxinaLocal[key]) checklistFaxinaLocal[key] = {};
+  checklistFaxinaLocal[key][itemId] = checked;
+  saveChecklistFaxinaLocal();
+  renderDetailsBody();
+}
+
+// ---------- Inventário de utensílios/bens por cabana ----------
+// Lista fixa de bens daquela unidade (não muda a cada hóspede); a responsável
+// pela limpeza confere a cada faxina. Igual ao checklist de enxoval, a marcação
+// fica local (é uma conferência feita na hora, reserva por reserva).
+function inventarioCabanaHtml(key, cabana){
+  const itens = inventarioCabanas[cabana] || [];
+  if(!itens.length){
+    return isAdmin
+      ? `<div style="margin:8px 0;font-size:12px;color:#8a7d6f;">📦 Inventário — nenhum item cadastrado para <b>${cabana}</b> ainda. <button class="mini secondary" onclick="abrirChecklistAdminModal()">✏️ Cadastrar</button></div>`
+      : '';
+  }
+  const estado = checklistFaxinaLocal[key] || {};
+  const marcados = itens.filter(it => estado['inv_' + it.id]).length;
+  return `
+    <div class="checklist-enxoval" style="margin:8px 0;">
+      <div style="font-size:12px;color:#8a7d6f;margin-bottom:4px;">
+        📦 Inventário de utensílios/bens — ${cabana} (${marcados}/${itens.length} conferido${itens.length===1?'':'s'})
+      </div>
+      ${itens.map(it => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:2px 0;cursor:pointer;">
+          <input type="checkbox" ${estado['inv_' + it.id] ? 'checked' : ''} onchange="toggleChecklistFaxina('${key}','inv_${it.id}',this.checked)">
+          <span${estado['inv_' + it.id] ? ' style="text-decoration:line-through;color:#8a7d6f;"' : ''}>${it.label}</span>
+        </label>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ---------- Admin: editar itens extras do checklist + inventário por cabana ----------
+function salvarChecklistExtra_(){
+  const p = JSON.stringify(checklistExtraItens);
+  if(apiAvailable()) apiSalvarConfig('checklistExtra', p).catch(()=>{});
+  try { localStorage.setItem('painelChecklistExtra', p); } catch(e){}
+}
+function salvarInventarioCabanas_(){
+  const p = JSON.stringify(inventarioCabanas);
+  if(apiAvailable()) apiSalvarConfig('inventarioCabanas', p).catch(()=>{});
+  try { localStorage.setItem('painelInventarioCabanas', p); } catch(e){}
+}
+function abrirChecklistAdminModal(){
+  if(!isAdmin) return;
+  renderChecklistExtraLista();
+  renderInventarioAdminUnidadeSelect();
+  document.getElementById('checklistAdminModal').style.display = 'flex';
+}
+function closeChecklistAdminModal(){ document.getElementById('checklistAdminModal').style.display = 'none'; }
+function renderChecklistExtraLista(){
+  const box = document.getElementById('checklistExtraLista');
+  box.innerHTML = checklistExtraItens.length ? ('<table class="fb-table"><tbody>' + checklistExtraItens.map(function(it){
+    return '<tr><td>' + it.label + '</td><td><button class="mini secondary" onclick="removerChecklistExtra(\'' + it.id + '\')">🗑️</button></td></tr>';
+  }).join('') + '</tbody></table>') : '<p class="empty">Nenhum item extra ainda.</p>';
+}
+function addChecklistExtra(){
+  if(!isAdmin) return;
+  const input = document.getElementById('checklistExtraInput');
+  const label = input.value.trim();
+  if(!label){ alert('Escreva o item.'); return; }
+  checklistExtraItens.push({ id: 'ce' + Date.now() + Math.floor(Math.random()*1000), label: label });
+  salvarChecklistExtra_();
+  input.value = '';
+  renderChecklistExtraLista();
+  if(currentDetailKey) renderDetailsBody();
+}
+function removerChecklistExtra(id){
+  if(!isAdmin) return;
+  checklistExtraItens = checklistExtraItens.filter(function(it){ return it.id !== id; });
+  salvarChecklistExtra_();
+  renderChecklistExtraLista();
+  if(currentDetailKey) renderDetailsBody();
+}
+let inventarioAdminUnidade = '';
+function renderInventarioAdminUnidadeSelect(){
+  const sel = document.getElementById('inventarioAdminUnidade');
+  if(!sel) return;
+  sel.innerHTML = CABANAS.map(function(u){ return '<option value="' + u + '">' + u + '</option>'; }).join('');
+  if(!inventarioAdminUnidade || CABANAS.indexOf(inventarioAdminUnidade) === -1) inventarioAdminUnidade = CABANAS[0];
+  sel.value = inventarioAdminUnidade;
+  renderInventarioAdminLista();
+}
+function mudarInventarioAdminUnidade(u){ inventarioAdminUnidade = u; renderInventarioAdminLista(); }
+function renderInventarioAdminLista(){
+  const box = document.getElementById('inventarioAdminLista');
+  const itens = inventarioCabanas[inventarioAdminUnidade] || [];
+  box.innerHTML = itens.length ? ('<table class="fb-table"><tbody>' + itens.map(function(it){
+    return '<tr><td>' + it.label + '</td><td><button class="mini secondary" onclick="removerInventarioItem(\'' + it.id + '\')">🗑️</button></td></tr>';
+  }).join('') + '</tbody></table>') : '<p class="empty">Nenhum item cadastrado para esta unidade ainda.</p>';
+}
+function addInventarioItem(){
+  if(!isAdmin) return;
+  const input = document.getElementById('inventarioItemInput');
+  const label = input.value.trim();
+  if(!label){ alert('Escreva o item.'); return; }
+  if(!inventarioCabanas[inventarioAdminUnidade]) inventarioCabanas[inventarioAdminUnidade] = [];
+  inventarioCabanas[inventarioAdminUnidade].push({ id: 'inv' + Date.now() + Math.floor(Math.random()*1000), label: label });
+  salvarInventarioCabanas_();
+  input.value = '';
+  renderInventarioAdminLista();
+  if(currentDetailKey) renderDetailsBody();
+}
+function removerInventarioItem(id){
+  if(!isAdmin) return;
+  const itens = inventarioCabanas[inventarioAdminUnidade] || [];
+  inventarioCabanas[inventarioAdminUnidade] = itens.filter(function(it){ return it.id !== id; });
+  salvarInventarioCabanas_();
+  renderInventarioAdminLista();
+  if(currentDetailKey) renderDetailsBody();
 }
 
 // ---------- Controle de pagamento das faxinas (somente administrador) ----------
@@ -2645,6 +2853,7 @@ let currentDetailKey = null;
 function toggleAdmin(){
   if(isAdmin){
     isAdmin = false;
+    adminNome = '';
     updateAdminUI();
     if(currentDetailKey) renderDetailsBody();
     irModulo(activeModulo);
@@ -2662,9 +2871,10 @@ function closeAdminModal(){
   document.getElementById('adminModal').style.display = 'none';
 }
 function submitAdminPin(){
-  const pin = document.getElementById('adminPinInput').value;
-  if(pin.trim() === ADMIN_PIN){
+  const pin = document.getElementById('adminPinInput').value.trim();
+  if(pin === ADMIN_PIN || pin === MAIARA_PIN){
     isAdmin = true;
+    adminNome = (pin === MAIARA_PIN) ? 'maiara' : 'mestre';
     isFaxineira = false;
     isManutColab = false;
     closeAdminModal();
@@ -2750,19 +2960,20 @@ function updateAdminUI(){
   document.getElementById('importSection').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('viewerNotice').style.display = isAdmin ? 'none' : 'flex';
   const btn = document.getElementById('adminToggleBtn');
-  btn.textContent = isAdmin ? '🔓 Administrador (clique para sair)' : '🔒 Entrar como administrador';
+  btn.textContent = isAdmin ? '🔓 ' + (adminNome === 'maiara' ? 'Maiara' : 'Mestre') + ' (clique para sair)' : '👑 Entrar como administrador';
   btn.classList.toggle('is-active', isAdmin);
   document.getElementById('stockBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('productsBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('pixBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('telegramBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('cestaBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
+  document.getElementById('checklistAdminBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('syncReservasBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   const fbtn = document.getElementById('faxineiraToggleBtn');
-  fbtn.textContent = isFaxineira ? '🧹 Colaborador da Limpeza (clique para sair)' : '🧹 Entrar como colaborador da limpeza';
+  fbtn.textContent = isFaxineira ? '🧺 Responsável Limpeza (clique para sair)' : '🧺 Responsável Limpeza';
   fbtn.classList.toggle('is-active', isFaxineira);
   const mbtn = document.getElementById('manutColabToggleBtn');
-  mbtn.textContent = isManutColab ? '🔧 Colaborador de manutenção (clique para sair)' : '🔧 Entrar como colaborador de manutenção';
+  mbtn.textContent = isManutColab ? '🔧 Responsável Manutenção (clique para sair)' : '🔧 Responsável Manutenção';
   mbtn.classList.toggle('is-active', isManutColab);
   updateSidebarUI();
 }
@@ -4687,9 +4898,16 @@ function renderDetailsBody(){
   const label0 = sel0 && sel0.selectedOptions[0] ? sel0.selectedOptions[0].textContent : currentDetailKey;
   const cabana0 = res ? cabanaFrigobar(res) : '';
   const fx = faxinaStatus(currentDetailKey);
+  const guestsAd = res ? (Number(res.adultos)||0) : 0;
+  const guestsCr = res ? (Number(res.criancas)||0) : 0;
+  const guestsFx = guestsAd + guestsCr;
+  const guestsTexto = guestsFx ? (guestsAd + (guestsAd===1?' adulto':' adultos') + (guestsCr ? ' + ' + guestsCr + (guestsCr===1?' criança':' crianças') : '')) : 'não informado';
   const faxinaSection = res ? `
     <hr>
     <label>🧹 Faxina ${syncNote}</label>
+    <div style="background:#fff8ec;border:1px solid #f0cf9a;border-radius:6px;padding:8px 10px;margin:4px 0;font-size:13px;">
+      👥 <b>Hóspedes nesta reserva: ${guestsTexto}</b> (total ${guestsFx || '?'}) — use para saber quantas toalhas/roupas de cama levar.
+    </div>
     <p style="margin:4px 0;">
       ${fx && fx.dataExecucao
         ? 'Executada em <strong>' + fmtDataBR(fx.dataExecucao) + '</strong>' + (fx.executadoPor ? ' por ' + fx.executadoPor : '')
@@ -4697,6 +4915,8 @@ function renderDetailsBody(){
             + (podeVerPagamento() ? (fx.pago ? ' (pago em ' + (fmtDataBR(fx.dataPagamento)||'?') + (fx.formaPagamento ? ' via ' + fx.formaPagamento : '') + ')' : ' (pendente de pagamento)') : '')
         : '<span class="empty" style="padding:0;">Faxina ainda pendente.</span>'}
     </p>
+    ${checklistFaxinaHtml(currentDetailKey, guestsFx)}
+    ${inventarioCabanaHtml(currentDetailKey, cabana0)}
     ${isOperador() ? `
       <button class="secondary mini" onclick="marcarFaxinaExecutada('${currentDetailKey}', '${encodeURIComponent(label0)}', '${encodeURIComponent(cabana0)}')">Marcar faxina como executada</button>
       ${(isAdmin && fx && fx.dataExecucao && !fx.pago) ? `<button class="mini" onclick="marcarFaxinaPaga('${encodeURIComponent(currentDetailKey)}')">💳 Registrar pagamento</button>` : ''}

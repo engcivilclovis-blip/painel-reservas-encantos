@@ -54,12 +54,12 @@ Cada módulo só aparece na barra lateral para quem tem permissão de vê-lo.
   - Registrar reabastecimento de estoque (botão "📦 Estoque de frigobar", só aparece com a sincronização configurada).
   - Cadastrar, editar e remover produtos do catálogo de frigobar (botão "🧾 Produtos do frigobar").
   - Ver e controlar o pagamento das faxinas; definir os valores de faxina; criar/agendar/concluir ordens de serviço e concluir pedidos de material.
-- **Colaborador da limpeza** ("🧹 Entrar como colaborador da limpeza"): libera os módulos Reservas e Faxinas. **Não vê os dados financeiros das reservas** (saldo, "a cobrar"), mas **vê o valor das faxinas** (para saber quanto vai receber). Pode:
+- **Colaborador da limpeza** ("🧺 Responsável Limpeza"): libera os módulos Reservas e Faxinas. **Não vê os dados financeiros das reservas** (saldo, "a cobrar"), mas **vê o valor das faxinas** (para saber quanto vai receber). Pode:
   - Ver todas as entradas e saídas.
   - Lançar consumo de frigobar por reserva e gerar a fatura de fechamento (só o total do frigobar, sem o saldo da reserva).
   - Marcar a faxina de uma reserva como executada; escrever observações de manutenção; solicitar manutenção e material.
   - Ver o valor de cada faxina e o saldo a receber (mas não pode alterar os valores — só o administrador define).
-- **Colaborador de manutenção** ("🔧 Entrar como colaborador de manutenção"): libera **apenas o módulo Manutenção**, sem nenhum dado financeiro em lugar nenhum (não vê reservas, frigobar nem valores de faxina). Recebe as demandas geradas pela limpeza e pelo administrador, e marca cada uma como concluída.
+- **Colaborador de manutenção** ("🔧 Responsável Manutenção"): libera **apenas o módulo Manutenção**, sem nenhum dado financeiro em lugar nenhum (não vê reservas, frigobar nem valores de faxina). Recebe as demandas geradas pela limpeza e pelo administrador, e marca cada uma como concluída.
 
 ## Valores de faxina por tipo de unidade
 
@@ -89,6 +89,17 @@ Abaixo do calendário de faxinas há uma tabela com **todas as faxinas já confi
 > ⚠️ **Por que essa tabela existe:** o `data/reservas.csv` é substituído a cada atualização, e o FazReservas deixa de exportar reservas antigas. O calendário mostra faxinas só das reservas que ainda estão no CSV — então, quando uma reserva sai do arquivo, a faxina dela sumiria da tela. Esta tabela lê direto da planilha, então **nenhuma faxina (e nenhum valor a pagar) se perde** quando o CSV é atualizado.
 
 > 📅 **Sobre as datas:** o Google Sheets converte automaticamente textos como "19/07/2026" em data real, e devolve num formato técnico. O painel normaliza tudo para DD/MM/AAAA na exibição.
+
+## Checklist de enxoval, itens extras e inventário por cabana
+
+Dentro de "Ver detalhes de uma reserva" → seção "🧹 Faxina", a responsável pela limpeza vê:
+
+- **Quantos hóspedes** tem a reserva (adultos + crianças), em destaque, logo no topo da seção.
+- **Checklist de enxoval**, calculado automaticamente a partir do nº de hóspedes: toalhas de banho/rosto, sabonete e xampu nos vasilhames do banheiro, papel higiênico, roupa de cama e lixeiras — cada item é uma caixinha que ela marca conforme confere. Inclui também um lembrete fixo para conferir o frigobar físico e lançar/cobrar qualquer item que tenha saído sem ser lançado.
+- **Itens extras** (marcados com ⭐): cadastrados pelo administrador no botão **"🧹 Checklist da faxina"** da barra de ferramentas — para lembretes que não dependem do nº de hóspedes (ex.: "testar controle da TV", "verificar gás da churrasqueira"). Aparecem em toda faxina, de qualquer cabana.
+- **Inventário de utensílios e bens por cabana**: lista fixa de itens daquela unidade (ex.: jogo de panelas, controle da TV, cobertor extra), também cadastrada pelo administrador no mesmo botão "🧹 Checklist da faxina" (seção "📦 Inventário"), escolhendo a cabana. A responsável pela limpeza confere a cada faxina daquela unidade.
+
+A marcação das caixinhas (enxoval, itens extras e inventário) fica salva no navegador de quem está usando — é uma conferência feita na hora da faxina, não precisa sincronizar entre aparelhos. Já a **lista de itens** (quais itens extras existem, quais itens tem o inventário de cada cabana) é sincronizada entre todos os dispositivos como configuração (igual PIX, contatos etc.) quando a API estiver configurada.
 
 ## Módulo de Manutenção
 
@@ -124,7 +135,7 @@ Os cartões no topo resumem: **⛔ consta pago sem extrato**, **⚠️ a revisar
 
 ### ⚠️ Importante sobre o código de administrador
 
-Os códigos ficam definidos no `<script>` de `index.html`: `ADMIN_PIN` (administrador), `FAXINEIRA_PIN` (colaborador da limpeza) e `MANUTENCAO_PIN` (colaborador de manutenção). **Troque os três valores antes de publicar.**
+Os códigos ficam definidos no `<script>` de `index.html`: `ADMIN_PIN` (Mestre), `MAIARA_PIN` (Maiara — mesmo acesso total do Mestre, só um código separado para saber quem entrou), `FAXINEIRA_PIN` (Responsável Limpeza) e `MANUTENCAO_PIN` (Responsável Manutenção). **Troque os quatro valores antes de publicar.** O botão "Entrar como administrador" aceita tanto o código do Mestre quanto o da Maiara — os dois têm exatamente os mesmos poderes.
 
 Isso **não é uma senha de verdade** — como o site é público e estático, qualquer pessoa que abrir "Ver código-fonte da página" no navegador consegue ler esse valor. Serve apenas para evitar que alguém sem intenção de editar clique e mexa por engano nos dados. Não use para proteger informações sensíveis.
 
@@ -162,7 +173,7 @@ O script cria oito abas sozinho na primeira vez que for usado:
 - **Observacoes**: uma linha por reserva com a observação atual e quando foi atualizada pela última vez.
 - **Produtos**: uma linha por produto do catálogo de frigobar (nome e preço), editável pelo administrador direto no painel (botão "🧾 Produtos do frigobar") ou diretamente na planilha.
 - **Faxinas**: uma linha por reserva com faxina marcada como executada (cabana, data de execução, quem executou, valor, se já foi paga, data do pagamento e observações de manutenção).
-- **Config**: pares chave/valor genéricos; hoje guarda `valorFaxinaCabana` e `valorFaxinaContainer` (valores pagos por faxina, por tipo de unidade), editáveis no módulo "🧹 Faxinas".
+- **Config**: pares chave/valor genéricos; guarda `valorFaxinaCabana` e `valorFaxinaContainer` (valores pagos por faxina, por tipo de unidade, editáveis no módulo "🧹 Faxinas"), além de `checklistExtra` e `inventarioCabanas` (itens extras do checklist e inventário por cabana, editáveis no botão "🧹 Checklist da faxina").
 - **OrdensServico**: cada ordem de serviço de manutenção (cabana, descrição, tipo emergência/programada, data agendada, data de criação, status aberta/concluída), criada pela limpeza ou pelo administrador, visível no módulo "🔧 Manutenção".
 - **PedidosMaterial**: cada solicitação de material/reposição (cabana, descrição, data, status aberto/concluído), visível na aba "📦 Materiais".
 
