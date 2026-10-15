@@ -360,6 +360,7 @@
     <button class="btn-details" id="cestaBtn" onclick="openCestaConfig()" style="display:none;">☕ Cesta de café</button>
     <button class="btn-details" id="checklistAdminBtn" onclick="abrirChecklistAdminModal()" style="display:none;">🧹 Checklist da faxina</button>
     <button class="btn-details" id="listaHospedesBtn" onclick="abrirListaHospedesModal()" style="display:none;">📣 Lista de hóspedes</button>
+    <button class="btn-details" id="agenciasBtn" onclick="abrirAgenciasModal()" style="display:none;">🤝 Agências parceiras</button>
   </div>
 </div>
 
@@ -750,6 +751,57 @@
       <input type="text" id="contFone" placeholder="+55 49 99999-9999" style="width:180px;padding:8px;border:1px solid var(--border);border-radius:6px;">
       <button onclick="addContato()">Adicionar</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="agenciasModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>🤝 Agências Parceiras</h2>
+      <button class="secondary" onclick="closeAgenciasModal()">Fechar</button>
+    </div>
+    <p style="font-size:13px;color:#5a5049;">Cadastro de agências/operadoras de turismo para prospecção e envio da programação do ano. A lista fica salva aqui e sincroniza entre dispositivos.</p>
+    <p id="agenciasContagem" style="font-size:13px;font-weight:600;color:var(--brand-terra, #8a4a2f);"></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <button class="secondary" onclick="baixarAgenciasVCF()">⬇ Baixar contatos (.vcf)</button>
+      <button class="secondary" onclick="baixarAgenciasCSV()">⬇ Baixar planilha (.csv)</button>
+    </div>
+    <p style="font-size:12px;color:#8a7d6f;margin:-4px 0 10px;">Mesmo uso da lista de hóspedes: importe o .vcf no celular e monte uma Lista de Transmissão separada, só com agências — útil pra avisos rápidos por WhatsApp além do e-mail.</p>
+    <div id="agenciasLista"></div>
+    <hr style="margin:12px 0;">
+    <label>Adicionar agência</label>
+    <div class="frigobar-add" style="flex-wrap:wrap;gap:8px;">
+      <input type="text" id="agNome" placeholder="Nome da agência" style="width:160px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <input type="text" id="agCidadeUf" placeholder="Cidade/UF" style="width:120px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <input type="email" id="agEmail" placeholder="e-mail@agencia.com.br" style="width:200px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <input type="text" id="agFone" placeholder="Telefone/WhatsApp (opcional)" style="width:170px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <input type="text" id="agSite" placeholder="Site/Instagram (opcional)" style="width:170px;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      <select id="agPerfil" style="padding:8px;border:1px solid var(--border);border-radius:6px;">
+        <option value="Excursão">Excursão</option>
+        <option value="Casal/Experiência">Casal/Experiência</option>
+        <option value="Ecoturismo">Ecoturismo</option>
+        <option value="Outro">Outro</option>
+      </select>
+      <button onclick="addAgencia()">Adicionar</button>
+    </div>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer;font-weight:600;font-size:13px;">📋 Importar várias agências de uma vez (colar lista)</summary>
+      <p style="font-size:12px;color:#8a7d6f;margin:8px 0;">Uma agência por linha, campos separados por ponto e vírgula, nessa ordem:<br>
+      <code>Nome;Cidade/UF;E-mail;Telefone;Site;Perfil</code><br>
+      Precisa de nome + pelo menos um contato (e-mail OU telefone/WhatsApp) — os outros campos podem ficar em branco (mas mantenha os ";"). Agências com e-mail ou telefone já cadastrado são ignoradas automaticamente.</p>
+      <textarea id="agenciasImportText" class="obs-textarea" style="height:120px;" placeholder="Serra Tour Viagens;Florianópolis/SC;contato@serratour.com.br;+55 48 99999-1234;instagram.com/serratour;Ecoturismo
+Vale Encantado Operadora;Porto Alegre/RS;comercial@valeencantado.com.br;;;Excursão"></textarea>
+      <button onclick="importarAgenciasEmMassa()" style="margin-top:6px;">Importar lista</button>
+    </details>
+    <hr style="margin:16px 0;">
+    <h3 style="margin:0 0 6px;">✉️ Mensagem para as agências</h3>
+    <label for="agenciaRemetenteInput">E-mail remetente (Gmail) — fique logado nele no navegador antes de enviar</label>
+    <input type="email" id="agenciaRemetenteInput" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;" oninput="salvarAgenciaEmailTexto()">
+    <label for="agenciaAssuntoInput">Assunto</label>
+    <input type="text" id="agenciaAssuntoInput" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;" oninput="salvarAgenciaEmailTexto()">
+    <label for="agenciaCorpoInput">Corpo do e-mail (a programação do ano, valores, condições de parceria...)</label>
+    <textarea id="agenciaCorpoInput" class="obs-textarea" style="height:160px;" oninput="salvarAgenciaEmailTexto()"></textarea>
+    <div id="agenciasEnvioBox" style="margin-top:10px;"></div>
   </div>
 </div>
 
@@ -1296,6 +1348,21 @@ try { checklistExtraItens = JSON.parse(localStorage.getItem('painelChecklistExtr
 // { 'CABANA ROSA': [{id,label}, ...], ... } — chave igual ao valor de CABANAS.
 let inventarioCabanas = {};
 try { inventarioCabanas = JSON.parse(localStorage.getItem('painelInventarioCabanas') || '{}'); } catch(e){ inventarioCabanas = {}; }
+// Agências/operadoras de turismo parceiras, para prospecção e envio da programação do ano.
+// [{id,nome,cidadeUf,email,telefone,site,perfil}]
+let agenciasParceiras = [];
+try { agenciasParceiras = JSON.parse(localStorage.getItem('painelAgenciasParceiras') || '[]'); } catch(e){ agenciasParceiras = []; }
+let agenciaEmailAssunto = 'Parceria comercial — Encantos de Altitude';
+let agenciaEmailCorpo = 'Olá! Somos a Encantos de Altitude, pousada de charme na Serra Catarinense (São Joaquim/SC), com cabanas e containers para casais, 1.400m de altitude, vinícola própria e vista para o Vale.\n\nGostaríamos de propor uma parceria comercial com comissionamento para sua agência. Segue nossa programação/tabela de valores do ano:\n\n[cole aqui a tabela de valores, disponibilidade e condições de comissão]\n\nFicamos à disposição para qualquer dúvida.';
+// E-mail que deve aparecer como remetente ao enviar (o painel não consegue forçar
+// isso sozinho — só abre o Gmail pronto pra enviar; é preciso estar logado
+// nesse e-mail no navegador na hora de clicar "Abrir e-mail").
+let agenciaEmailRemetente = 'encantosdealtitudepousada@gmail.com';
+try {
+  agenciaEmailAssunto = localStorage.getItem('painelAgenciaEmailAssunto') || agenciaEmailAssunto;
+  agenciaEmailCorpo = localStorage.getItem('painelAgenciaEmailCorpo') || agenciaEmailCorpo;
+  agenciaEmailRemetente = localStorage.getItem('painelAgenciaEmailRemetente') || agenciaEmailRemetente;
+} catch(e){}
 // Débitos (saídas) dos extratos bancários, para conciliar com despesas. [{data,valor,memo,fitid,banco}]
 let debitosExtrato = [];
 let faxinaDetailsLocal = {};
@@ -1426,6 +1493,10 @@ function refreshFrigobarCache(){
         if(config.tarefasAdm){ try { tarefasAdm = JSON.parse(config.tarefasAdm) || []; } catch(e){} }
         if(config.checklistExtra){ try { checklistExtraItens = JSON.parse(config.checklistExtra) || []; } catch(e){} }
         if(config.inventarioCabanas){ try { inventarioCabanas = JSON.parse(config.inventarioCabanas) || {}; } catch(e){} }
+        if(config.agenciasParceiras){ try { agenciasParceiras = JSON.parse(config.agenciasParceiras) || []; } catch(e){} }
+        if(config.agenciaEmailAssunto !== undefined && config.agenciaEmailAssunto) agenciaEmailAssunto = config.agenciaEmailAssunto;
+        if(config.agenciaEmailCorpo !== undefined && config.agenciaEmailCorpo) agenciaEmailCorpo = config.agenciaEmailCorpo;
+        if(config.agenciaEmailRemetente !== undefined && config.agenciaEmailRemetente) agenciaEmailRemetente = config.agenciaEmailRemetente;
         if(config.debitosExtrato){ try { debitosExtrato = JSON.parse(config.debitosExtrato) || []; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
@@ -1971,10 +2042,11 @@ function baixarArquivo_(conteudo, tipo, nome){
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+// Gera vCards a partir de uma lista genérica de {nome, telefone, nota}.
+// Usada tanto para hóspedes quanto para agências parceiras.
 function gerarVCF_(lista){
-  return lista.map(function(g){
-    const nota = 'Hospede Encantos de Altitude - ' + g.qtdEstadias + ' estadia(s)' + (g.ultimaEstadia ? ', ultima em ' + g.ultimaEstadia.toLocaleDateString('pt-BR') : '');
-    return ['BEGIN:VCARD','VERSION:3.0','N:' + g.nome + ';;;;','FN:' + g.nome,'TEL;TYPE=CELL:+' + g.telefone,'NOTE:' + nota,'END:VCARD'].join('\r\n');
+  return lista.map(function(item){
+    return ['BEGIN:VCARD','VERSION:3.0','N:' + item.nome + ';;;;','FN:' + item.nome,'TEL;TYPE=CELL:+' + item.telefone,'NOTE:' + (item.nota || ''),'END:VCARD'].join('\r\n');
   }).join('\r\n') + '\r\n';
 }
 function gerarCSVHospedes_(lista){
@@ -1988,7 +2060,11 @@ function gerarCSVHospedes_(lista){
 }
 function baixarHospedesVCF(){
   if(!isAdmin) return;
-  baixarArquivo_(gerarVCF_(hospedesUnicos()), 'text/vcard;charset=utf-8', 'hospedes_encantos_' + new Date().toISOString().slice(0,10) + '.vcf');
+  const lista = hospedesUnicos().map(function(g){
+    const nota = 'Hospede Encantos de Altitude - ' + g.qtdEstadias + ' estadia(s)' + (g.ultimaEstadia ? ', ultima em ' + g.ultimaEstadia.toLocaleDateString('pt-BR') : '');
+    return { nome: g.nome, telefone: g.telefone, nota: nota };
+  });
+  baixarArquivo_(gerarVCF_(lista), 'text/vcard;charset=utf-8', 'hospedes_encantos_' + new Date().toISOString().slice(0,10) + '.vcf');
 }
 function baixarHospedesCSV(){
   if(!isAdmin) return;
@@ -3062,6 +3138,7 @@ function updateAdminUI(){
   document.getElementById('cestaBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('checklistAdminBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('listaHospedesBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('agenciasBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('syncReservasBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   const fbtn = document.getElementById('faxineiraToggleBtn');
   fbtn.textContent = isFaxineira ? '🧺 Responsável Limpeza (clique para sair)' : '🧺 Responsável Limpeza';
@@ -4191,6 +4268,200 @@ function addContato(){
 }
 function removerContato(id){ if(!isAdmin) return; contatosAdm = contatosAdm.filter(function(c){ return c.id !== id; }); salvarContatos_(); renderContatos(); }
 function opcoesContatos_(){ return '<option value="">(escolha um contato)</option>' + contatosAdm.map(function(c){ return '<option value="' + c.fone + '">' + c.nome + '</option>'; }).join(''); }
+
+// --- Agências parceiras (prospecção B2B + envio de e-mail) ---
+function salvarAgenciasParceiras_(){ const p = JSON.stringify(agenciasParceiras); if(apiAvailable()) apiSalvarConfig('agenciasParceiras', p).catch(()=>{}); try { localStorage.setItem('painelAgenciasParceiras', p); } catch(e){} }
+let agenciaEmailTextoSaveTimer = null;
+function salvarAgenciaEmailTexto(){
+  agenciaEmailAssunto = document.getElementById('agenciaAssuntoInput').value;
+  agenciaEmailCorpo = document.getElementById('agenciaCorpoInput').value;
+  agenciaEmailRemetente = document.getElementById('agenciaRemetenteInput').value.trim();
+  try {
+    localStorage.setItem('painelAgenciaEmailAssunto', agenciaEmailAssunto);
+    localStorage.setItem('painelAgenciaEmailCorpo', agenciaEmailCorpo);
+    localStorage.setItem('painelAgenciaEmailRemetente', agenciaEmailRemetente);
+  } catch(e){}
+  clearTimeout(agenciaEmailTextoSaveTimer);
+  agenciaEmailTextoSaveTimer = setTimeout(function(){
+    if(apiAvailable()){
+      apiSalvarConfig('agenciaEmailAssunto', agenciaEmailAssunto).catch(function(){});
+      apiSalvarConfig('agenciaEmailCorpo', agenciaEmailCorpo).catch(function(){});
+      apiSalvarConfig('agenciaEmailRemetente', agenciaEmailRemetente).catch(function(){});
+    }
+  }, 800);
+  renderAgenciasEnvioBox();
+}
+function abrirAgenciasModal(){
+  if(!isAdmin) return;
+  renderAgenciasLista();
+  document.getElementById('agenciaAssuntoInput').value = agenciaEmailAssunto;
+  document.getElementById('agenciaCorpoInput').value = agenciaEmailCorpo;
+  document.getElementById('agenciaRemetenteInput').value = agenciaEmailRemetente;
+  renderAgenciasEnvioBox();
+  document.getElementById('agenciasModal').style.display = 'flex';
+}
+function closeAgenciasModal(){ document.getElementById('agenciasModal').style.display = 'none'; }
+function renderAgenciasLista(){
+  const box = document.getElementById('agenciasLista');
+  const comTel = agenciasComTelefone_().length;
+  const contagem = document.getElementById('agenciasContagem');
+  if(contagem) contagem.textContent = agenciasParceiras.length + ' agência(s) cadastrada(s) · ' + comTel + ' com WhatsApp/telefone (exportável para contatos).';
+  box.innerHTML = agenciasParceiras.length ? ('<table class="fb-table"><thead><tr><th>Nome</th><th>Cidade/UF</th><th>E-mail</th><th>Telefone</th><th>Perfil</th><th></th></tr></thead><tbody>' +
+    agenciasParceiras.map(function(a){
+      const linkSite = a.site ? ' <a href="' + (a.site.indexOf('http') === 0 ? a.site : 'https://' + a.site) + '" target="_blank" rel="noopener" style="font-size:11px;">(site)</a>' : '';
+      return '<tr><td>' + a.nome + linkSite + '</td><td>' + (a.cidadeUf || '') + '</td><td>' + a.email + '</td><td>' + (a.telefone || '-') + '</td><td>' + (a.perfil || '') + '</td>' +
+        '<td><button class="mini secondary" onclick="removerAgencia(\'' + a.id + '\')">🗑️</button></td></tr>';
+    }).join('') + '</tbody></table>') : '<p class="empty">Nenhuma agência cadastrada ainda.</p>';
+}
+function addAgencia(){
+  if(!isAdmin) return;
+  const nome = document.getElementById('agNome').value.trim();
+  const cidadeUf = document.getElementById('agCidadeUf').value.trim();
+  const email = document.getElementById('agEmail').value.trim();
+  const telefone = document.getElementById('agFone').value.trim();
+  const site = document.getElementById('agSite').value.trim();
+  const perfil = document.getElementById('agPerfil').value;
+  if(!nome || (!email && !telefone)){ alert('Preencha o nome e pelo menos um contato (e-mail ou telefone/WhatsApp).'); return; }
+  agenciasParceiras.push({ id: 'ag' + Date.now() + Math.floor(Math.random()*1000), nome: nome, cidadeUf: cidadeUf, email: email, telefone: telefone, site: site, perfil: perfil });
+  salvarAgenciasParceiras_();
+  ['agNome','agCidadeUf','agEmail','agFone','agSite'].forEach(function(id){ document.getElementById(id).value = ''; });
+  renderAgenciasLista();
+  renderAgenciasEnvioBox();
+}
+function removerAgencia(id){
+  if(!isAdmin) return;
+  agenciasParceiras = agenciasParceiras.filter(function(a){ return a.id !== id; });
+  salvarAgenciasParceiras_();
+  renderAgenciasLista();
+  renderAgenciasEnvioBox();
+}
+// Chave de duplicidade de uma agência: por e-mail quando tiver, senão pelo
+// telefone normalizado — várias agências pequenas só publicam WhatsApp, sem e-mail.
+function chaveAgencia_(email, telefone){
+  if(email) return 'email:' + email.trim().toLowerCase();
+  const digitos = soDigitos_(telefone);
+  if(digitos) return 'tel:' + digitos;
+  return null;
+}
+// Importação em massa (cola uma lista "Nome;Cidade/UF;E-mail;Telefone;Site;Perfil",
+// uma agência por linha) — pra não precisar cadastrar uma por uma na mão depois
+// de uma pesquisa. Exige nome + pelo menos um contato (e-mail ou telefone);
+// ignora linhas repetidas (mesmo e-mail ou mesmo telefone já cadastrado).
+function importarAgenciasEmMassa(){
+  if(!isAdmin) return;
+  const campoTexto = document.getElementById('agenciasImportText');
+  const texto = campoTexto.value;
+  if(!texto.trim()){ alert('Cole a lista primeiro.'); return; }
+  const linhas = texto.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
+  const existentes = new Set(agenciasParceiras.map(function(a){ return chaveAgencia_(a.email, a.telefone); }).filter(Boolean));
+  let importadas = 0, ignoradas = 0;
+  linhas.forEach(function(linha){
+    const campos = linha.split(';').map(function(c){ return c.trim(); });
+    const nome = campos[0] || '';
+    const cidadeUf = campos[1] || '';
+    const email = campos[2] || '';
+    const telefone = campos[3] || '';
+    const site = campos[4] || '';
+    const perfil = campos[5] || 'Outro';
+    const chave = chaveAgencia_(email, telefone);
+    if(!nome || (!email && !telefone) || (chave && existentes.has(chave))){ ignoradas++; return; }
+    agenciasParceiras.push({ id: 'ag' + Date.now() + Math.floor(Math.random()*10000), nome: nome, cidadeUf: cidadeUf, email: email, telefone: telefone, site: site, perfil: perfil });
+    if(chave) existentes.add(chave);
+    importadas++;
+  });
+  salvarAgenciasParceiras_();
+  campoTexto.value = '';
+  renderAgenciasLista();
+  renderAgenciasEnvioBox();
+  alert('✅ ' + importadas + ' agência(s) importada(s).' + (ignoradas ? ' ' + ignoradas + ' linha(s) ignorada(s) (faltou nome/contato, ou já estava cadastrada).' : ''));
+}
+// Exportação em massa dos contatos de agências (mesmo formato usado para
+// hóspedes) — para importar no celular e montar uma Lista de Transmissão
+// de WhatsApp separada, só com agências.
+function agenciasComTelefone_(){
+  return agenciasParceiras.map(function(a){
+    const digitos = soDigitos_(a.telefone);
+    if(!digitos) return null;
+    const tel = digitos.length <= 11 ? '55' + digitos : digitos;
+    const nota = 'Agencia parceira' + (a.perfil ? ' - ' + a.perfil : '') + (a.cidadeUf ? ' (' + a.cidadeUf + ')' : '');
+    return { nome: a.nome, telefone: tel, nota: nota };
+  }).filter(Boolean);
+}
+function baixarAgenciasVCF(){
+  if(!isAdmin) return;
+  const lista = agenciasComTelefone_();
+  if(!lista.length){ alert('Nenhuma agência com telefone/WhatsApp cadastrado ainda.'); return; }
+  baixarArquivo_(gerarVCF_(lista), 'text/vcard;charset=utf-8', 'agencias_parceiras_' + new Date().toISOString().slice(0,10) + '.vcf');
+}
+function baixarAgenciasCSV(){
+  if(!isAdmin) return;
+  if(!agenciasParceiras.length){ alert('Nenhuma agência cadastrada ainda.'); return; }
+  let csv = 'Nome,Cidade/UF,E-mail,Telefone,Site,Perfil\r\n';
+  agenciasParceiras.forEach(function(a){
+    csv += [a.nome, a.cidadeUf || '', a.email || '', a.telefone || '', a.site || '', a.perfil || '']
+      .map(function(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }).join(',') + '\r\n';
+  });
+  baixarArquivo_('﻿' + csv, 'text/csv;charset=utf-8', 'agencias_parceiras_' + new Date().toISOString().slice(0,10) + '.csv');
+}
+// Monta a lista de e-mails únicos cadastrados, e divide em lotes para caber
+// no limite de tamanho do link "mailto:" (varia por navegador/SO; usamos uma
+// margem segura). Cada lote vira um botão "Abrir e-mail" separado.
+function agenciasEmailsValidos_(){
+  const vistos = new Set();
+  return agenciasParceiras.map(function(a){ return (a.email || '').trim(); }).filter(function(e){
+    if(!e || vistos.has(e.toLowerCase())) return false;
+    vistos.add(e.toLowerCase());
+    return true;
+  });
+}
+function montarLotesEmailAgencias_(){
+  const emails = agenciasEmailsValidos_();
+  const baseFixo = ('mailto:?subject=' + encodeURIComponent(agenciaEmailAssunto || '') + '&body=' + encodeURIComponent(agenciaEmailCorpo || '') + '&bcc=').length;
+  const orcamento = 1800;
+  const lotes = [];
+  let atual = [];
+  let tamanhoAtual = baseFixo;
+  emails.forEach(function(em){
+    const pedaco = encodeURIComponent(em).length + 3;
+    if(atual.length && (tamanhoAtual + pedaco) > orcamento){
+      lotes.push(atual);
+      atual = [];
+      tamanhoAtual = baseFixo;
+    }
+    atual.push(em);
+    tamanhoAtual += pedaco;
+  });
+  if(atual.length) lotes.push(atual);
+  return lotes;
+}
+// Abre o COMPOSE do Gmail (não o "mailto:" genérico do sistema operacional),
+// porque o remetente pedido é um Gmail específico — assim abre direto no
+// navegador, na conta que estiver logada ali. O painel não tem como obrigar
+// qual conta Google é usada; é preciso estar logado como agenciaEmailRemetente
+// nessa aba do navegador na hora de clicar.
+function abrirEmailAgencias(loteIndex){
+  if(!isAdmin) return;
+  const lote = montarLotesEmailAgencias_()[loteIndex];
+  if(!lote || !lote.length){ alert('Nenhum e-mail de agência cadastrado.'); return; }
+  const url = 'https://mail.google.com/mail/?view=cm&fs=1&tf=1'
+    + '&su=' + encodeURIComponent(agenciaEmailAssunto || '')
+    + '&body=' + encodeURIComponent(agenciaEmailCorpo || '')
+    + '&bcc=' + lote.map(encodeURIComponent).join(',');
+  window.open(url, '_blank', 'noopener');
+}
+function renderAgenciasEnvioBox(){
+  const box = document.getElementById('agenciasEnvioBox');
+  if(!box) return;
+  const lotes = montarLotesEmailAgencias_();
+  const avisoRemetente = '<p style="font-size:12px;color:#8a7d6f;margin:0 0 8px;">📧 Vai abrir o Gmail no navegador — confira se está logado como <b>' + (agenciaEmailRemetente || '(defina o e-mail remetente acima)') + '</b> antes de enviar.</p>';
+  if(!lotes.length){ box.innerHTML = avisoRemetente + '<p class="empty">Cadastre pelo menos uma agência com e-mail para poder enviar.</p>'; return; }
+  box.innerHTML = avisoRemetente + lotes.map(function(lote, i){
+    const rotulo = lotes.length > 1
+      ? ('📧 Abrir e-mail (parte ' + (i + 1) + ' de ' + lotes.length + ' — ' + lote.length + ' destinatário(s))')
+      : ('📧 Abrir e-mail (' + lote.length + ' destinatário(s) em CCO)');
+    return '<button onclick="abrirEmailAgencias(' + i + ')" style="margin:4px 4px 0 0;">' + rotulo + '</button>';
+  }).join('') + (lotes.length > 1 ? '<p style="font-size:12px;color:#8a7d6f;margin-top:6px;">A lista de e-mails passou do limite de tamanho do link, por isso foi dividida em ' + lotes.length + ' partes — abra e envie cada uma separadamente.</p>' : '');
+}
 
 // --- Tarefas / pendências ---
 function salvarTarefas_(){ const p = JSON.stringify(tarefasAdm); if(apiAvailable()) apiSalvarConfig('tarefasAdm', p).catch(()=>{}); try { localStorage.setItem('painelTarefasAdm', p); } catch(e){} }

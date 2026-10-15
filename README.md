@@ -111,6 +111,16 @@ Dois formatos de download:
 
 O modal explica o passo a passo de uso (importar o .vcf no celular → Listas de transmissão no WhatsApp Business → selecionar os contatos → escrever a promoção, anexar a arte e enviar).
 
+## Agências parceiras e e-mail para prospecção (botão "🤝 Agências parceiras", só administrador)
+
+Cadastro de agências/operadoras de turismo (nome, cidade/UF, e-mail, telefone, site/Instagram, perfil de público) para prospecção de parceria comercial, sincronizado entre dispositivos como configuração (igual PIX, contatos etc.). As agências com telefone/WhatsApp preenchido também podem ser exportadas em massa (.vcf/.csv), do mesmo jeito que a lista de hóspedes — para montar uma Lista de Transmissão de WhatsApp separada, só com agências.
+
+Dentro do mesmo modal: um campo de **e-mail remetente** (Gmail), **assunto** e **corpo do e-mail** (editável, pensado para a programação/tabela de valores do ano), tudo salvo e pronto pra reusar. O botão **"📧 Abrir e-mail"** abre o **compose do Gmail** (mail.google.com) numa aba nova, já com todos os e-mails cadastrados em **CCO**, assunto e corpo preenchidos — o administrador só revisa e clica em enviar.
+
+> ⚠️ **Limites técnicos (não dá pra contornar sem um backend de e-mail):**
+> - O painel **não consegue forçar qual conta Google envia** — é preciso estar logado no navegador como o e-mail remetente configurado (ex. `encantosdealtitudepousada@gmail.com`) na hora de clicar em "Abrir e-mail", senão o Gmail abre com a conta errada.
+> - Não existe API de e-mail aqui — é só um link que abre o Gmail pronto; por isso a lista de destinatários cabe até um certo tamanho de URL. Se a lista de agências crescer muito, o painel divide automaticamente em vários botões ("parte 1 de 2", "parte 2 de 2"...) — é só abrir e enviar cada parte separadamente.
+
 ## Módulo de Manutenção
 
 - **Resumo** no topo: quantas ordens estão abertas, quantas são emergência, quantas programadas e quantas já foram concluídas.
