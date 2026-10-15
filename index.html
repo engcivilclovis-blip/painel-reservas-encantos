@@ -359,6 +359,7 @@
     <button class="btn-details" id="telegramBtn" onclick="openTelegramModal()" style="display:none;">🔔 Alertas no WhatsApp</button>
     <button class="btn-details" id="cestaBtn" onclick="openCestaConfig()" style="display:none;">☕ Cesta de café</button>
     <button class="btn-details" id="checklistAdminBtn" onclick="abrirChecklistAdminModal()" style="display:none;">🧹 Checklist da faxina</button>
+    <button class="btn-details" id="listaHospedesBtn" onclick="abrirListaHospedesModal()" style="display:none;">📣 Lista de hóspedes</button>
   </div>
 </div>
 
@@ -774,6 +775,31 @@
       <input type="text" id="inventarioItemInput" placeholder="Ex.: Jogo de panelas (4 peças), controle da TV, cobertor extra..." style="flex:1;min-width:200px;padding:8px;border:1px solid var(--border);border-radius:6px;">
       <button onclick="addInventarioItem()">Adicionar</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="listaHospedesModal" style="display:none;">
+  <div class="modal admin-modal">
+    <div class="modal-head">
+      <h2>📣 Lista de Hóspedes (WhatsApp)</h2>
+      <button class="secondary" onclick="closeListaHospedesModal()">Fechar</button>
+    </div>
+    <p style="font-size:13px;color:#5a5049;">Lista única de quem já se hospedou (sem repetir), montada na hora a partir das reservas já carregadas — sempre atual, sem trabalho manual de atualizar todo mês. Hóspedes sem telefone cadastrado não entram.</p>
+    <p id="listaHospedesCount" style="font-size:13px;font-weight:600;color:var(--brand-terra, #8a4a2f);"></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">
+      <button onclick="baixarHospedesVCF()">⬇ Baixar contatos (.vcf)</button>
+      <button class="secondary" onclick="baixarHospedesCSV()">⬇ Baixar planilha (.csv)</button>
+    </div>
+    <details style="font-size:13px;color:#5a5049;margin-bottom:10px;">
+      <summary style="cursor:pointer;font-weight:600;">Como usar o .vcf para montar a lista de transmissão (1x por mês, ~2 min)</summary>
+      <ol style="margin:8px 0 0 18px;padding:0;">
+        <li>Baixe o <b>.vcf</b> acima e abra esse arquivo no seu celular (envie para você mesmo ou salve no Google Drive/e-mail e abra pelo celular).</li>
+        <li>O celular vai oferecer "Importar todos os contatos" — confirme. Todos os hóspedes entram de uma vez na sua agenda.</li>
+        <li>No WhatsApp Business: Mais opções → Listas de transmissão → Nova lista → selecione os contatos importados.</li>
+        <li>Escreva a promoção, anexe a arte/imagem e toque em enviar. Só recebem quem tem seu número salvo também.</li>
+      </ol>
+    </details>
+    <div id="listaHospedesPreview"></div>
   </div>
 </div>
 
@@ -1917,6 +1943,73 @@ function removerInventarioItem(id){
   if(currentDetailKey) renderDetailsBody();
 }
 
+// ---------- Lista de hóspedes para WhatsApp (marketing) ----------
+// Monta a lista única (sem duplicar) na hora, a partir das reservas já
+// carregadas — não precisa de nenhuma rotina de atualização mensal manual.
+function hospedesUnicos(){
+  const mapa = {};
+  reservations.forEach(function(r){
+    if(norm(r.status).includes('cancel')) return;
+    const nome = (r.nome||'').trim();
+    const digitos = soDigitos_(r.telefone);
+    if(!nome || !digitos) return;
+    const tel = digitos.length <= 11 ? '55' + digitos : digitos;
+    if(!mapa[tel]) mapa[tel] = { nome: nome, telefone: tel, ultimaEstadia: r.checkout || null, qtdEstadias: 0, unidades: new Set() };
+    const g = mapa[tel];
+    g.qtdEstadias++;
+    if(r.checkout && (!g.ultimaEstadia || r.checkout > g.ultimaEstadia)){ g.ultimaEstadia = r.checkout; g.nome = nome; }
+    if(r.acomodacao) g.unidades.add(r.acomodacao);
+  });
+  return Object.values(mapa).sort(function(a,b){ return (b.ultimaEstadia||0) - (a.ultimaEstadia||0); });
+}
+function baixarArquivo_(conteudo, tipo, nome){
+  const blob = new Blob([conteudo], {type: tipo});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nome;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function gerarVCF_(lista){
+  return lista.map(function(g){
+    const nota = 'Hospede Encantos de Altitude - ' + g.qtdEstadias + ' estadia(s)' + (g.ultimaEstadia ? ', ultima em ' + g.ultimaEstadia.toLocaleDateString('pt-BR') : '');
+    return ['BEGIN:VCARD','VERSION:3.0','N:' + g.nome + ';;;;','FN:' + g.nome,'TEL;TYPE=CELL:+' + g.telefone,'NOTE:' + nota,'END:VCARD'].join('\r\n');
+  }).join('\r\n') + '\r\n';
+}
+function gerarCSVHospedes_(lista){
+  let csv = 'Nome,Telefone,Ultima Estadia,Qtd Estadias,Unidades\r\n';
+  lista.forEach(function(g){
+    const unidades = Array.from(g.unidades).join(' | ');
+    csv += [g.nome, '+' + g.telefone, g.ultimaEstadia ? g.ultimaEstadia.toLocaleDateString('pt-BR') : '', g.qtdEstadias, unidades]
+      .map(function(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }).join(',') + '\r\n';
+  });
+  return csv;
+}
+function baixarHospedesVCF(){
+  if(!isAdmin) return;
+  baixarArquivo_(gerarVCF_(hospedesUnicos()), 'text/vcard;charset=utf-8', 'hospedes_encantos_' + new Date().toISOString().slice(0,10) + '.vcf');
+}
+function baixarHospedesCSV(){
+  if(!isAdmin) return;
+  baixarArquivo_('﻿' + gerarCSVHospedes_(hospedesUnicos()), 'text/csv;charset=utf-8', 'hospedes_encantos_' + new Date().toISOString().slice(0,10) + '.csv');
+}
+function abrirListaHospedesModal(){
+  if(!isAdmin) return;
+  renderListaHospedesPreview();
+  document.getElementById('listaHospedesModal').style.display = 'flex';
+}
+function closeListaHospedesModal(){ document.getElementById('listaHospedesModal').style.display = 'none'; }
+function renderListaHospedesPreview(){
+  const lista = hospedesUnicos();
+  document.getElementById('listaHospedesCount').textContent = lista.length + ' hóspede(s) com telefone, sem duplicar.';
+  const box = document.getElementById('listaHospedesPreview');
+  box.innerHTML = lista.length ? ('<table class="fb-table"><thead><tr><th>Nome</th><th>Telefone</th><th>Última estadia</th><th>Estadias</th></tr></thead><tbody>' +
+    lista.slice(0,300).map(function(g){
+      return '<tr><td>' + g.nome + '</td><td>+' + g.telefone + '</td><td>' + (g.ultimaEstadia ? g.ultimaEstadia.toLocaleDateString('pt-BR') : '-') + '</td><td>' + g.qtdEstadias + '</td></tr>';
+    }).join('') + '</tbody></table>' + (lista.length > 300 ? '<p class="empty">Mostrando os 300 mais recentes na prévia — o arquivo baixado tem todos.</p>' : '')) : '<p class="empty">Nenhum hóspede com telefone encontrado nas reservas carregadas.</p>';
+}
+
 // ---------- Controle de pagamento das faxinas (somente administrador) ----------
 function renderFaxinasRegistradas(){
   const box = document.getElementById('faxinasRegistradasBox');
@@ -2968,6 +3061,7 @@ function updateAdminUI(){
   document.getElementById('telegramBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('cestaBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   document.getElementById('checklistAdminBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('listaHospedesBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('syncReservasBtn').style.display = (isAdmin && apiAvailable()) ? 'inline-block' : 'none';
   const fbtn = document.getElementById('faxineiraToggleBtn');
   fbtn.textContent = isFaxineira ? '🧺 Responsável Limpeza (clique para sair)' : '🧺 Responsável Limpeza';

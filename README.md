@@ -101,6 +101,16 @@ Dentro de "Ver detalhes de uma reserva" → seção "🧹 Faxina", a responsáve
 
 A marcação das caixinhas (enxoval, itens extras e inventário) fica salva no navegador de quem está usando — é uma conferência feita na hora da faxina, não precisa sincronizar entre aparelhos. Já a **lista de itens** (quais itens extras existem, quais itens tem o inventário de cada cabana) é sincronizada entre todos os dispositivos como configuração (igual PIX, contatos etc.) quando a API estiver configurada.
 
+## Lista de hóspedes para WhatsApp (botão "📣 Lista de hóspedes", só administrador)
+
+Monta na hora, a partir das reservas já carregadas, a lista de **todo hóspede que já se hospedou**, sem repetir (agrupado pelo telefone) — sempre atual, sem precisar de nenhuma rotina de atualização manual. Hóspedes sem telefone cadastrado (comum em reservas de Booking/Airbnb) não entram, porque não dá pra mandar WhatsApp pra eles.
+
+Dois formatos de download:
+- **.vcf** (contatos): importa todos de uma vez no celular — é o formato pensado para montar rápido uma **Lista de Transmissão** do WhatsApp (grátis, nativa do app, mas sempre com envio manual — o WhatsApp não tem nenhuma API pública para automatizar esse tipo de envio).
+- **.csv** (planilha): nome, telefone, última estadia, nº de estadias e unidades — para controle/organização fora do painel.
+
+O modal explica o passo a passo de uso (importar o .vcf no celular → Listas de transmissão no WhatsApp Business → selecionar os contatos → escrever a promoção, anexar a arte e enviar).
+
 ## Módulo de Manutenção
 
 - **Resumo** no topo: quantas ordens estão abertas, quantas são emergência, quantas programadas e quantas já foram concluídas.
