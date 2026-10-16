@@ -852,6 +852,12 @@ Vale Encantado Operadora;Porto Alegre/RS;comercial@valeencantado.com.br;;;Excurs
       </ol>
     </details>
     <div id="listaHospedesPreview"></div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
+    <label for="hospedePromoInput">📢 Mensagem da campanha atual (cole na lista de transmissão do WhatsApp)</label>
+    <textarea id="hospedePromoInput" class="obs-textarea" style="height:140px;" oninput="salvarHospedeMensagemPromo()"></textarea>
+    <div style="margin-top:8px;">
+      <button class="secondary" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('hospedePromoInput').value); this.textContent='✅ Copiado!'; setTimeout(()=>{ this.textContent='📋 Copiar mensagem'; }, 1800);">📋 Copiar mensagem</button>
+    </div>
   </div>
 </div>
 
@@ -1363,6 +1369,9 @@ try {
   agenciaEmailCorpo = localStorage.getItem('painelAgenciaEmailCorpo') || agenciaEmailCorpo;
   agenciaEmailRemetente = localStorage.getItem('painelAgenciaEmailRemetente') || agenciaEmailRemetente;
 } catch(e){}
+// Mensagem promocional da campanha atual, para copiar na lista de transmissão do WhatsApp dos hóspedes.
+let hospedeMensagemPromo = 'Promoção de Novembro — Encantos de Altitude\n\nReservando direto com a gente (fora de plataformas) para estadias em novembro, você ganha uma garrafa de vinho Merlot Velho Amigo na chegada.\n\nSão Joaquim, SC — 1.400m de altitude\nWhatsApp: (49) 99133-2710\nencantosdealtitude.com.br\n\nVagas de novembro são limitadas — garanta a sua!';
+try { hospedeMensagemPromo = localStorage.getItem('painelHospedeMensagemPromo') || hospedeMensagemPromo; } catch(e){}
 // Débitos (saídas) dos extratos bancários, para conciliar com despesas. [{data,valor,memo,fitid,banco}]
 let debitosExtrato = [];
 let faxinaDetailsLocal = {};
@@ -1497,6 +1506,7 @@ function refreshFrigobarCache(){
         if(config.agenciaEmailAssunto !== undefined && config.agenciaEmailAssunto) agenciaEmailAssunto = config.agenciaEmailAssunto;
         if(config.agenciaEmailCorpo !== undefined && config.agenciaEmailCorpo) agenciaEmailCorpo = config.agenciaEmailCorpo;
         if(config.agenciaEmailRemetente !== undefined && config.agenciaEmailRemetente) agenciaEmailRemetente = config.agenciaEmailRemetente;
+        if(config.hospedeMensagemPromo !== undefined && config.hospedeMensagemPromo) hospedeMensagemPromo = config.hospedeMensagemPromo;
         if(config.debitosExtrato){ try { debitosExtrato = JSON.parse(config.debitosExtrato) || []; } catch(e){} }
         if(config.taxaBooking !== undefined && config.taxaBooking !== '') taxaBookingPct = Number(config.taxaBooking) || 15;
         if(config.taxaAirbnb !== undefined && config.taxaAirbnb !== '') taxaAirbnbPct = Number(config.taxaAirbnb) || 3;
@@ -2073,6 +2083,7 @@ function baixarHospedesCSV(){
 function abrirListaHospedesModal(){
   if(!isAdmin) return;
   renderListaHospedesPreview();
+  document.getElementById('hospedePromoInput').value = hospedeMensagemPromo;
   document.getElementById('listaHospedesModal').style.display = 'flex';
 }
 function closeListaHospedesModal(){ document.getElementById('listaHospedesModal').style.display = 'none'; }
@@ -4290,6 +4301,15 @@ function salvarAgenciaEmailTexto(){
     }
   }, 800);
   renderAgenciasEnvioBox();
+}
+let hospedePromoSaveTimer = null;
+function salvarHospedeMensagemPromo(){
+  hospedeMensagemPromo = document.getElementById('hospedePromoInput').value;
+  try { localStorage.setItem('painelHospedeMensagemPromo', hospedeMensagemPromo); } catch(e){}
+  clearTimeout(hospedePromoSaveTimer);
+  hospedePromoSaveTimer = setTimeout(function(){
+    if(apiAvailable()) apiSalvarConfig('hospedeMensagemPromo', hospedeMensagemPromo).catch(function(){});
+  }, 800);
 }
 function abrirAgenciasModal(){
   if(!isAdmin) return;
